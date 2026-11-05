@@ -1,0 +1,19 @@
+# Never publish stock firmware or anything derived from it
+stock/
+*.ppf
+*.ppf_
+*.hex
+decompiled.c
+names_*.tsv
+ghidra_proj/
+
+# Build output
+*.o
+*.elf
+fw/*.bin
+fw/*_test
+fw/sd_test/
+__pycache__/
+
+# Audio and local test data
+*.wav
