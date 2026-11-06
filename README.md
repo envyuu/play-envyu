@@ -61,7 +61,7 @@ The mod's compiled code is appended directly behind the stock image at `0xB069C`
 
 ## Credits and license
 
-The code is MIT licensed, see [LICENSE](LICENSE). The license covers this project's own code only, not Polyend's firmware. The reverse engineering and much of the code were done with heavy use of AI assistance (Claude Code) and tested on real hardware by the maintainer.
+The code is MIT licensed, see [LICENSE](LICENSE). The license covers this project's own code only, not Polyend's firmware. The reverse engineering and much of the code were done with heavy use of AI assistance and tested on real hardware by the maintainer.
 
 There is no support promise. Bug reports are welcome and handled when time allows.
 
