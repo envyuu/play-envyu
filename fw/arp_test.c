@@ -10,6 +10,8 @@ void arp_chord_hook(int *track, int ctx, uint8_t *ev, int root);
 void arp_on_send(uint8_t port, void *self, const midi_msg_t *m);
 void arp_tick(int ticks);
 int host_arp_active(void);
+int fx_track_from_ctx(uint32_t ctx) { (void)ctx; return -1; }
+void fx_set_track(int track) { (void)track; }
 uint32_t host_arp_fmt(int k);
 
 uint8_t host_arp_ram[4096] __attribute__((aligned(8)));

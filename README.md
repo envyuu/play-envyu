@@ -4,6 +4,8 @@ Unofficial, community-made extensions for the Polyend Play. This repository cont
 
 > **Beta, at your own risk.** Flashing modified firmware can make your device unusable and may affect your warranty. So far it has been tested on one single Rev A device, and testing of this build is still in progress. It is not affiliated with or endorsed by Polyend. "Polyend" and "Play" are used only to say which hardware this is for.
 
+**Website with interactive demos and a browser patcher: https://envyuu.github.io/play-envyu/**
+
 ## What it adds
 
 - **MIDI effects** including arpeggiator and echo

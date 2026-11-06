@@ -28,11 +28,16 @@ if $PY -c "import unicorn" 2>/dev/null; then
   else echo "   SKIPPED emu_mt.py (A/B test, needs BASELINE_DIR)"; fi
   $PY emu_menu.py PolyendPlay_v1.6.0_mod.ppf | tail -1
 else echo "   uebersprungen (unicorn fehlt: python3 -m venv v && v/bin/pip install unicorn; UNICORN_PY=v/bin/python)"; fi
+echo "== 7b. Spurauswahl im Emulator (echter Notenweg triggerStep bis sendNote)"
+if $PY -c "import unicorn" 2>/dev/null; then $PY emu_fxsel.py PolyendPlay_v1.6.0_mod.ppf | tail -1
+else echo "   uebersprungen (unicorn fehlt)"; fi
 echo "== 8. Arp (Patch 014, 32 Bit, ASan/UBSan)"
 gcc -m32 -O1 -DHOST_TEST -fsanitize=address,undefined -o arp_test arp.c arp_test.c && ./arp_test | tail -1
 echo "== 9. FX-Suite inkl. Loop-Fix (Szenarien + Zufallstest)"
 gcc -O1 -DHOST_TEST -DNO_ARP -fsanitize=address,undefined -o host_test fx.c host_test.c && ./host_test | tail -1
 gcc -O1 -DHOST_TEST -DNO_ARP -fsanitize=address,undefined -o fuzz_test fx.c fuzz_test.c && ./fuzz_test | tail -1
+echo "== 9b. Spurauswahl der FX-Suite (Drums + Synth, Szenarien + Zufallstest; ASan/UBSan)"
+gcc -O1 -g -DHOST_TEST -DNO_ARP -fsanitize=address,undefined -fno-sanitize-recover=all -o fxsel_test fx.c fxsel_test.c && ./fxsel_test | tail -1
 echo "== 10. USB-Upload inkl. GET (Szenarien + Zufallstest; ASan/UBSan)"
 gcc $SAN -DNO_UM -o up_test usbup.c up_test.c 2>/dev/null && ./up_test | tail -1
 echo "== 11. Menue USB Audio / Config-Datei / Neuanmeldung / Classic-Creative (32 Bit, ASan/UBSan, 5 Startwerte)"

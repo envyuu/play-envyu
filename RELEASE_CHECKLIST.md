@@ -8,7 +8,9 @@
 - [ ] Decide on Rev B: test on a real device, or have the docs exclude it
 - [ ] Decide whether USB `FLASH`, `PUT`, `DEL` and `PEEK` should be off by default, since any connected computer can use them
 - [ ] Confirm the current download from Polyend has the SHA-256 in `manifests/latest.json`
-- [ ] Have someone install from a clean checkout using only the README
+- [ ] Have someone install from a clean checkout using only the README and the website
+- [ ] Check the website's operating steps against the device: Arp and Randomize Type by double tap, Audio/MIDI page, reset button
+- [x] After going public: enable GitHub Pages from `main` and `/docs`, then update the README link
 - [x] Project name: play-envyu
 - [ ] Decide on contact with Polyend and legal review
 

@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>play-envyu</title>
+<meta name="description" content="Unofficial community firmware extensions for the Polyend Play: USB audio and recording, MIDI effects, arpeggiator and Note In Scale.">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css?v=8">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="#main">play-envyu</a>
+  <nav aria-label="Sections">
+    <a href="#map">Map</a><a href="#usb">USB audio</a><a href="#rec">Record</a><a href="#perform">Perform</a><a href="#arp">Arp</a><a href="#scale">Scale</a><a href="#install">Install</a>
+  </nav>
+</header>
+
+<main id="main">
+<section class="hero">
+  <p class="eyebrow">Unofficial mod · Polyend Play · Firmware 1.6.0 · Beta</p>
+  <h1>More play in your Play.</h1>
+  <p class="lead">USB audio in and out, recording straight to the SD card, moving MIDI effects, an arpeggiator and scale-aware randomizing. Try each one below, then patch your own firmware right in this page.</p>
+  <div class="actions"><a class="btn primary" href="#install">Patch your firmware</a><a class="btn" href="#map">Explore the features</a></div>
+  <p class="note warn"><strong>At your own risk.</strong> Modified firmware can leave your device unusable and may affect your warranty. Not affiliated with or endorsed by Polyend. Supports Rev A devices; testing is on one device so far.</p>
+</section>
+
+<section id="map">
+  <h2>What changes on the device</h2>
+  <p class="sub">This schematic works: hold a pad, turn a lit knob or press a lit button. Proportions follow the 282 × 207 mm drawing in the manual.</p>
+  <div class="map">
+    <div class="device" id="device" role="group" aria-label="Schematic of the device controls"></div>
+    <aside class="panel" id="mapInfo"></aside>
+  </div>
+  <div class="cards" id="mapCards"></div>
+</section>
+
+<section id="usb">
+  <h2>USB audio</h2>
+  <p class="sub">A new <em>USB Audio</em> page in the main menu turns the Play into an audio interface. The device reconnects to the computer when you change <em>Audio Out</em>.</p>
+  <div class="lab">
+    <div class="controls">
+      <figure class="stage"><div class="pd" id="usbDisp"></div><figcaption>Simulated display</figcaption></figure>
+      <div class="knobrow" id="usbKnob"><p class="knobhint" id="usbHint"></p></div>
+      <label>Audio Out <select id="usbOut">
+        <option value="off">Off</option><option value="stereo">Stereo</option><option value="multi">Stereo + Multi</option><option value="in" selected>Stereo + In</option>
+      </select></label>
+      <label id="usbPresetL">Multitrack 9/10 <select id="usbPreset"><option value="master">Master</option><option value="fx">FX Return</option></select></label>
+      <label id="usbFaderL">Track Level <select id="usbFader"><option value="pre">Pre Fader</option><option value="post">Post Fader</option></select></label>
+      <label class="check" id="usb11L"><input type="checkbox" id="usb11"> <span>Choose the 11-channel format on the computer</span></label>
+    </div>
+    <div class="scope">
+      <div class="scope-head"><strong id="usbTitle"></strong></div>
+      <div id="usbFlow" class="flow"></div>
+      <p id="usbText" class="desc"></p>
+    </div>
+  </div>
+  <div class="cols">
+    <div><h3>What each signal contains</h3><ul class="facts">
+      <li><strong>Tracks 1–8</strong> are mono, after track filter and overdrive, before pan.</li>
+      <li><strong>Master</strong> has everything, including limiter and Loop.</li>
+      <li><strong>FX Return</strong> has only wet delay and reverb, before limiter and Loop.</li>
+    </ul></div>
+    <div><h3>FX Mode</h3><ul class="facts">
+      <li><strong>Creative</strong>: this mod's Echo, Loop, CC Motion and Arp.</li>
+      <li><strong>Classic</strong>: the original pad names and behaviour, no Arp.</li>
+      <li>Settings are saved to <code>/usbaudio.cfg</code> on the card.</li>
+    </ul></div>
+  </div>
+</section>
+
+<section id="rec">
+  <h2>Record incoming USB audio</h2>
+  <p class="sub">Set <em>Audio Out</em> to <em>Stereo + In</em>, play audio from your computer, then hold <kbd>Live Rec</kbd> for about one second. Try it:</p>
+  <div class="lab">
+    <div class="recdemo">
+      <figure class="stage"><div class="pd" id="recDisp"></div><figcaption>Simulated display</figcaption></figure>
+      <button id="recBtn" class="hw" type="button">Live Rec</button>
+      <p class="foot" id="recHint">Press briefly, or press and hold.</p>
+    </div>
+    <div class="scope"><ul class="facts">
+      <li><strong>Short press</strong>: normal Live Rec, but it now starts when you <em>release</em> the button.</li>
+      <li><strong>Hold about 1 s</strong>: USB recording on or off.</li>
+      <li><kbd>Shift</kbd> + <kbd>Live Rec</kbd>: Undo, as before.</li>
+      <li>Files go to <code>Samples/Live Recordings/Rec_NNN.wav</code> and appear as a sample in your project.</li>
+      <li>Up to 6 minutes per take. Choose Mono or Stereo under <em>Rec</em> on the USB Audio page.</li>
+      <li>A <code>!</code> in the status means samples were lost, usually a slow SD card.</li>
+    </ul></div>
+  </div>
+</section>
+
+<section id="perform">
+  <h2>Perform pads for MIDI tracks</h2>
+  <p class="sub">In Perform mode, press <kbd>Shift</kbd> + <kbd>Audio/MIDI</kbd> to reach the MIDI page, then hold a pad. Three effect groups now move your MIDI instead of sending one fixed value, on the tracks you select. Pad names change on the display; pad colours stay the same.</p>
+  <div class="tabs" role="tablist" aria-label="Effect group">
+    <button role="tab" data-fx="echo" aria-selected="true">Echo <small>Delay pads</small></button>
+    <button role="tab" data-fx="loop" aria-selected="false">Loop <small>Loop pads</small></button>
+    <button role="tab" data-fx="cc" aria-selected="false">CC Motion <small>Reverb pads</small></button>
+  </div>
+  <div class="lab">
+    <div class="padcol">
+      <figure class="stage"><div class="pd" id="fxDisp"></div><figcaption>Simulated display</figcaption></figure>
+      <div class="padgrid" id="fxPads" role="group" aria-label="Effect pads"></div>
+    </div>
+    <div class="scope">
+      <div class="scope-head"><strong id="fxTitle"></strong><button class="btn small" id="fxPlay" type="button">▶ Hear it</button></div>
+      <div id="fxChart" class="chart"></div>
+      <p id="fxText" class="desc"></p>
+    </div>
+  </div>
+  <ul class="facts">
+    <li>Effects apply to the <strong>tracks you select</strong> with the Select pads in column 20. With no MIDI track selected, they apply to all MIDI tracks.</li>
+    <li>Loop mutes and repeats only the selected tracks; the others keep playing. CC Motion works per MIDI channel, so tracks sharing a channel move together.</li>
+    <li>Delay and Reverb pads still also change the Play's internal delay and reverb, and still send CC19 and CC17.</li>
+    <li>Loop captures the last 4 steps when you press the first Loop pad. Short loops can land between notes and stay silent, so a denser pattern works better.</li>
+    <li>CC Motion needs a synth or DAW listening to the CC. When you let go, the CC returns to its last value.</li>
+  </ul>
+</section>
+
+<section id="arp">
+  <h2>Arpeggiator</h2>
+  <p class="sub">On a MIDI track, the knob that shows <em>Chord</em> gets a new secondary parameter, <em>Arp</em>. Double-tap the knob to reach it. The arp plays the step's chord in time until the track's next note, Stop, or at most 4 bars.</p>
+  <div class="lab">
+    <div class="controls">
+      <figure class="stage"><div class="pd" id="arpDisp"></div><figcaption>Simulated display</figcaption></figure>
+      <div class="knobrow" id="arpKnob"><p class="knobhint" id="arpHint"></p></div>
+      <label>Arp pattern <select id="arpMode"></select></label>
+      <label>Chord on the step <select id="arpChord"></select></label>
+      <label class="check"><input type="checkbox" id="arpOct"> <span><strong>+Oct</strong>: add a second octave (<kbd>Shift</kbd> + turn)</span></label>
+    </div>
+    <div class="scope">
+      <div class="scope-head"><strong id="arpTitle"></strong><button class="btn small" id="arpPlay" type="button">▶ Hear it</button></div>
+      <div id="arpChart" class="chart"></div>
+      <p id="arpText" class="desc"></p>
+    </div>
+  </div>
+</section>
+
+<section id="scale">
+  <h2>Note In Scale</h2>
+  <p class="sub">Two new Randomize types for MIDI tracks. Double-tap the Randomize knob to reach <em>Randomize Type</em>. The name follows your project scale, for example <em>In C Dorian</em>. New notes stay within one octave of the original and never repeat it.</p>
+  <div class="lab">
+    <div class="controls">
+      <figure class="stage"><div class="pd" id="nisDisp"></div><figcaption>Simulated display</figcaption></figure>
+      <div class="knobrow" id="nisKnob"><p class="knobhint" id="nisHint"></p></div>
+      <label>Project scale <select id="nisScale"></select></label>
+      <label>Randomize <output id="nisPctOut">50%</output><input type="range" id="nisPct" min="0" max="100" value="50"></label>
+      <label>Type <select id="nisType"><option value="0" id="nisT0"></option><option value="1" id="nisT1"></option></select></label>
+      <button class="btn small" id="nisRoll" type="button">Roll again</button>
+    </div>
+    <div class="scope">
+      <div class="scope-head"><strong id="nisTitle"></strong><button class="btn small" id="nisPlay" type="button">▶ Hear it</button></div>
+      <div id="nisChart" class="chart"></div>
+      <p id="nisText" class="desc"></p>
+    </div>
+  </div>
+  <p class="foot">If the project scale is Chromatic, Major on the root note is used. The demo shows a selection of the firmware's scales.</p>
+</section>
+
+<section id="install">
+  <h2>Patch and install</h2>
+  <p class="sub">This page contains no Polyend firmware. You bring the official file; your browser adds the mod. Nothing leaves your computer.</p>
+  <ol class="steps">
+    <li><strong>Back up your whole SD card.</strong></li>
+    <li><strong>Download the official firmware 1.6.0</strong> from <a href="https://polyend.com/?p=23811" rel="noopener">Polyend's Play downloads page</a> and keep a copy.</li>
+    <li>
+      <strong>Patch it here.</strong>
+      <div class="patcher">
+        <label class="drop" id="drop"><input type="file" id="ppfFile" accept=".ppf"><span>Choose or drop <code>PolyendPlay_v1.6.0.ppf</code></span></label>
+        <ol class="log" id="patchLog" aria-live="polite"></ol>
+        <label class="check" id="riskL" hidden><input type="checkbox" id="risk"> <span>I understand this is unofficial and I flash it at my own risk.</span></label>
+        <a class="btn primary" id="patchDl" hidden>Download patched firmware</a>
+      </div>
+    </li>
+    <li><strong>Copy the new <code>.ppf</code> to the card's <code>Firmware</code> folder.</strong> Keep few files there: a device with 31 of them stopped at “Preparing”.</li>
+    <li><strong>Install it from the firmware update menu.</strong> It takes about 35 seconds. Don't switch off.</li>
+    <li><strong>Switch the device off and on once</strong> to confirm it starts from cold.</li>
+  </ol>
+  <div class="cols">
+    <div class="panel"><h3>Going back</h3><p>Put only the original <code>.ppf</code> in <code>/Firmware</code> and install it from the update menu.</p>
+    <p><strong>If the device hangs:</strong> switch it off, take the card to a computer and leave a single working <code>.ppf</code> in <code>/Firmware</code>. Put the card back, switch on and briefly press the hidden reset button. In this emergency mode the device picks a file at random, so one file matters.</p></div>
+    <div class="panel"><h3>Updating over USB</h3><p>Once the mod is installed, a command-line tool can transfer files and start updates without moving the card. It needs Python with <code>pyserial</code>:</p>
+    <pre><code>python3 tools/play_upload.py ls /Firmware
+python3 tools/play_upload.py put Kick.wav /Samples/Kick.wav
+python3 tools/play_upload.py update New.ppf</code></pre>
+    <p class="foot">While the mod runs, programs on the connected computer can use these commands, including flashing and deleting files.</p></div>
+  </div>
+  <div class="panel"><h3>Supported devices</h3>
+    <table><thead><tr><th>Device</th><th>Status</th></tr></thead><tbody>
+    <tr><td>Play, Rev A (Kinetis K66), firmware 1.6.0</td><td>Target device, tested on one device, testing in progress</td></tr>
+    <tr><td>Play, Rev B (i.MX RT)</td><td>Rev B part of the file stays stock, untested</td></tr>
+    <tr><td>Play+</td><td>Not supported</td></tr></tbody></table>
+  </div>
+</section>
+</main>
+
+<footer class="end">
+  <p><strong>play-envyu</strong> · MIT licensed code · <a href="https://github.com/envyuu/play-envyu" rel="noopener">Source on GitHub</a></p>
+  <p>Unofficial. “Polyend” and “Play” are used only to say which hardware this is for. The license covers this project's code, not Polyend's firmware. Reverse engineering and much of the code were done with heavy use of AI assistance (Claude Code) and tested on real hardware by the maintainer. Sounds on this page are browser simulations, not recordings of the device. The displays are drawn by this page and approximate the device; they are not screenshots. This page uses no cookies, tracking or external fonts.</p>
+</footer>
+<script src="display.js?v=8"></script>
+<script src="fxdata.js?v=8"></script>
+<script src="app.js?v=8"></script>
+<script src="devicemap.js?v=8"></script>
+<script src="patcher.js?v=8"></script>
+</body>
+</html>

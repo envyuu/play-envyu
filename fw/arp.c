@@ -16,6 +16,8 @@
 
 typedef struct { uint32_t type; uint8_t ch, pad, d1, d2; } midi_msg_t;
 typedef void (*send_fn)(void *self, const midi_msg_t *m);
+int  fx_track_from_ctx(uint32_t ctx);   /* fx.c: Spurauswahl */
+void fx_set_track(int track);
 
 #ifdef HOST_TEST
 extern void host_param_ctor(void);
@@ -120,6 +122,7 @@ typedef struct {
     void    *out;                      /* Ausgabeobjekt (USB/DIN), wie in MidiTrack_playChord */
     uint8_t  active, ch, vel, mode;
     uint8_t  n, pos, dir, sounding;    /* sounding: aktuell klingende Note oder 0xFF */
+    int32_t  track;                    /* MIDI-Spur fuer die Spurauswahl der FX-Suite, -1 = unbekannt */
     uint16_t rate, gate;
     uint16_t next, offcd;              /* Ticks bis zur naechsten Note / bis zum Note-Off */
     uint32_t remain;                   /* Ticks bis zum Ende */
@@ -178,11 +181,13 @@ void arp_set_creative(int on) {
 }
 
 /* ---------- Senden ---------- */
-static void send(void *out, uint32_t type, uint8_t ch, uint8_t note, uint8_t vel) {
+static void send(void *out, uint32_t type, uint8_t ch, uint8_t note, uint8_t vel, int track) {
     midi_msg_t m; m.type = type; m.ch = ch; m.pad = 0; m.d1 = note; m.d2 = vel;
     send_fn f = (send_fn)(uintptr_t)((const uint32_t *)(uintptr_t)(*(const uint32_t *)out))[0];
     AR->sending = 1;
+    fx_set_track(track);
     f(out, &m);                         /* ueber die vtable → unser USB-Hook (Echo/Loop sehen die Note) */
+    fx_set_track(-1);
     AR->sending = 0;
 }
 
@@ -191,9 +196,9 @@ static uint32_t rnd(void) { uint32_t x = AR->rnd; x ^= x << 13; x ^= x >> 17; x 
 static void slot_stop(volatile slot_t *s) {
     if (!s->active) return;
     if (s->mode == M_STRUM) {
-        for (uint32_t i = 0; i < s->n; i++) if (s->strum_on[i]) { send(s->out, 5, s->ch, s->notes[i], 64); s->strum_on[i] = 0; }
+        for (uint32_t i = 0; i < s->n; i++) if (s->strum_on[i]) { send(s->out, 5, s->ch, s->notes[i], 64, s->track); s->strum_on[i] = 0; }
     } else if (s->sounding != 0xFFu) {
-        send(s->out, 5, s->ch, s->sounding, 64);
+        send(s->out, 5, s->ch, s->sounding, 64, s->track);
     }
     s->sounding = 0xFFu; s->active = 0;
 }
@@ -217,12 +222,12 @@ static uint32_t pick(volatile slot_t *s) {
 
 static void step_note(volatile slot_t *s) {
     if (s->mode == M_STRUM) {
-        if (s->pos < s->n) { uint32_t i = s->pos++; send(s->out, 4, s->ch, s->notes[i], s->vel); s->strum_on[i] = 1; AR->played++; }
+        if (s->pos < s->n) { uint32_t i = s->pos++; send(s->out, 4, s->ch, s->notes[i], s->vel, s->track); s->strum_on[i] = 1; AR->played++; }
         return;
     }
-    if (s->sounding != 0xFFu) send(s->out, 5, s->ch, s->sounding, 64);
+    if (s->sounding != 0xFFu) send(s->out, 5, s->ch, s->sounding, 64, s->track);
     uint8_t note = s->notes[pick(s)];
-    send(s->out, 4, s->ch, note, s->vel);
+    send(s->out, 4, s->ch, note, s->vel, s->track);
     s->sounding = note; s->offcd = s->gate; AR->played++;
 }
 
@@ -234,7 +239,8 @@ void arp_chord_hook(int *track, int ctx, uint8_t *ev, int root) {
     if (!CREATIVE()) { ORIG_CHORD(track, ctx, ev, root); return; }     /* 017: Classic */
     uint32_t v = GET_PARAM(track, P_ARP, ctx, ev);
     uint32_t idx = v & 0xFFu;
-    if (idx == 0u || idx >= NVAR) { ORIG_CHORD(track, ctx, ev, root); return; }
+    int tr = fx_track_from_ctx((uint32_t)ctx);
+    if (idx == 0u || idx >= NVAR) { fx_set_track(tr); ORIG_CHORD(track, ctx, ev, root); fx_set_track(-1); return; }
     ensure();
     const arpdef_t *d = &ARPDEF[idx];
 
@@ -273,7 +279,7 @@ void arp_chord_hook(int *track, int ctx, uint8_t *ev, int root) {
     if (si < 0) si = 0;
     volatile slot_t *s = &AR->s[si];
     slot_stop(s);
-    s->out = out; s->ch = (uint8_t)ch; s->vel = (uint8_t)vel; s->mode = d->mode;
+    s->out = out; s->ch = (uint8_t)ch; s->vel = (uint8_t)vel; s->mode = d->mode; s->track = tr;
     s->n = (uint8_t)n; s->pos = 0; s->dir = 0; s->sounding = 0xFFu;
     for (uint32_t k = 0; k < n; k++) { s->notes[k] = notes[k]; s->strum_on[k] = 0; }
     s->rate = d->rate; s->gate = (uint16_t)(d->rate * 3u / 4u < 3u ? 3u : d->rate * 3u / 4u);
@@ -307,7 +313,7 @@ void arp_tick(int ticks) {
             if (s->remain == 0u) { slot_stop(s); break; }
             s->remain--;
             if (s->mode != M_STRUM && s->sounding != 0xFFu && s->offcd > 0u && --s->offcd == 0u) {
-                send(s->out, 5, s->ch, s->sounding, 64); s->sounding = 0xFFu;
+                send(s->out, 5, s->ch, s->sounding, 64, s->track); s->sounding = 0xFFu;
             }
             if (s->next > 0u && --s->next == 0u) { step_note(s); s->next = s->rate; }
         }

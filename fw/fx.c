@@ -6,6 +6,9 @@
  *   Slot 7  = Loop  (Audio+MIDI gemeinsam; Pad-Handler 0x22598 legt Kat. 15 auf Slot 7) → Eintraege 0xA8434 + 20*k
  *   Slot 14 = Reverb(MIDI) → Eintraege 0xA8E34 + 20*k  (CC-Motion)
  * Hooks: USB-Senden 0x9AD40 (0x5D34), DIN-Senden 0x9AA8C (0x42E0), Tick 3x BL → 0x4B21C.
+ * Spurauswahl: Effekte wirken nur auf die in Perform gewaehlten MIDI-Spuren. Auswahl-Bitfeld der Firmware 0x1FFF4518
+ * (Objekt 0x1FFF450C + 0xC, Bit 8–15 = MIDI-Spur 0–7), keine MIDI-Spur gewaehlt = alle. Die Spur einer Note kommt aus
+ * arp_chord_hook (fx_set_track), Note-Offs und Noten ohne Spur tragen keine Nummer.
  * Mit -DHOST_TEST wird gegen Attrappen fuer einen PC-Testlauf uebersetzt.
  */
 #include <stdint.h>
@@ -34,6 +37,10 @@ static inline void irq_restore(uint32_t p) { (void)p; }
 #define RAM_HI 0xFFFFFFFFu
 __attribute__((weak)) int host_creative = 1;
 #define CREATIVE() (host_creative != 0)
+__attribute__((weak)) uint32_t host_sel_raw = 0;
+__attribute__((weak)) uint32_t host_pattern = 0;
+#define SEL_RAW() (host_sel_raw)
+#define PATTERN_PTR() (host_pattern)
 #else
 #define ORIG_USB  ((send_fn)0x00005D35u)
 #define ORIG_DIN  ((send_fn)0x000042E1u)
@@ -46,6 +53,8 @@ __attribute__((weak)) int host_creative = 1;
 #define RAM_HI 0x2002FF00u
 /* Patch 017: Menue "FX Mode" (usbmenu.c, um_t bei 0x1FFFD300: magic, v[3] = creative @ +0x10); ohne gueltiges um_t = Creative */
 #define CREATIVE() (*(volatile uint32_t *)0x1FFFD300u != 0x55AEC017u || *(volatile int32_t *)0x1FFFD310u != 0)
+#define SEL_RAW() READ32(0x1FFF4518u)                   /* Auswahlobjekt 0x1FFF450C +0xC */
+#define PATTERN_PTR() READ32(0x1FFF4568u)               /* Auswahlobjekt +0x5C: aktuelles Pattern */
 static inline uint32_t irq_save(void) {
     uint32_t p; __asm volatile ("mrs %0, primask\n cpsid i" : "=r"(p) :: "memory"); return p;
 }
@@ -136,14 +145,14 @@ const char *const FX_NAMES[32] = {
 #endif
 
 /* ---------- Zustand ---------- */
-typedef struct { int32_t ticks; uint8_t type, ch, note, vel; uint8_t port, _r[3]; } ev_t;     /* geplante Sendungen */
-typedef struct { uint32_t t;    uint8_t type, ch, note, vel; uint8_t port, _r[3]; } hist_t;   /* Historie */
-typedef struct { uint16_t rel, dur; uint8_t ch, note, vel, port; } lnote_t;                     /* Loop-Inhalt */
+typedef struct { int32_t ticks; uint8_t type, ch, note, vel; uint8_t port; int8_t track; uint8_t _r[2]; } ev_t;     /* geplante Sendungen */
+typedef struct { uint32_t t;    uint8_t type, ch, note, vel; uint8_t port; int8_t track; uint8_t _r[2]; } hist_t;   /* Historie */
+typedef struct { uint16_t rel, dur; uint8_t ch, note, vel, port; } lnote_t;                     /* Loop-Inhalt; port: Bit 0 Port, darueber Spur + 1 */
 
 #define MAXEV   128
 #define MAXHIST 128
 #define MAXLOOP 64
-#define MAGIC   0xEC40C0D8u
+#define MAGIC   0xEC40C0D9u
 
 typedef struct {
     uint32_t magic;
@@ -159,11 +168,17 @@ typedef struct {
     uint16_t lfo_sent[2];         /* Kanaele, an die CC-Motion gesendet hat (Bitmaske je Port) */
     uint32_t lastnote[2][16];     /* Zeit der letzten Note-On je Port/Kanal (+1, 0 = nie) */
     uint8_t  ccval[2][16][5];     /* zuletzt vom Play gesendete Werte der beobachteten CCs (0xFF = unbekannt) */
+    uint8_t  lasttrack[2][16];    /* Spur + 1 der letzten Note je Port/Kanal (0 = unbekannt) */
+    int32_t  cur_track;           /* Spur der gerade entstehenden Note, -1 = keine */
+    uint32_t loop_mask, lfo_mask; /* Auswahl, mit der Loop bzw. CC-Motion zuletzt gestartet sind */
     ev_t     ev[MAXEV];
     hist_t   hist[MAXHIST];
     lnote_t  loop[MAXLOOP];
 } state_t;
 #define ST ((volatile state_t *)STATE_BASE)
+#ifndef HOST_TEST
+_Static_assert(sizeof(state_t) <= 0x1400u, "state_t passt nicht vor die Namenspuffer (0x1FFFB400)");
+#endif
 
 static void ensure_init(void) {
     if (ST->magic != MAGIC) {
@@ -171,13 +186,37 @@ static void ensure_init(void) {
         ST->hpos = 0; ST->hcount = 0; ST->loop_pad = -1; ST->loop_n = 0; ST->loop_len = 0; ST->loop_pos = 0;
         ST->lfo_pad = -1; ST->lfo_start = 0; ST->lfo_rand = 0x1234567u; ST->lfo_last_tick = 0; ST->lfo_val = -1;
         ST->lfo_sent[0] = ST->lfo_sent[1] = 0;
+        ST->cur_track = -1; ST->loop_mask = 0; ST->lfo_mask = 0;
         for (int p = 0; p < 2; p++) for (int c = 0; c < 16; c++) {
-            ST->lastnote[p][c] = 0;
+            ST->lastnote[p][c] = 0; ST->lasttrack[p][c] = 0;
             for (int w = 0; w < 5; w++) ST->ccval[p][c][w] = 0xFF;
         }
         ST->magic = MAGIC;
     }
 }
+
+/* ---------- Spurauswahl ---------- */
+#define PATTERN_PITCH 0xBA90u                           /* Abstand der beiden Pattern-Objekte */
+#define MIDI_TRACKS   0x5D50u                           /* Pattern + 0x5D50 = MIDI-Spur 0 */
+#define TRACK_SIZE    0xBA8u
+#define TRACK_CTX     0x88u                             /* ctx = Spur + 0x88 */
+
+static uint32_t midi_sel(void) { return (SEL_RAW() >> 8) & 0xFFu; }
+/* Keine MIDI-Spur gewaehlt = alle. Mit Auswahl gelten nur Noten, deren Spur bekannt und gewaehlt ist. */
+static int is_selected(int track, uint32_t mask) { return mask == 0u || (track >= 0 && track < 8 && ((mask >> track) & 1u)); }
+
+/* MIDI-Spur 0–7 zum Kontext aus MidiTrack_playChord, -1 = keine MIDI-Spur */
+int fx_track_from_ctx(uint32_t ctx) {
+    uint32_t pat = PATTERN_PTR();
+    if (ctx < TRACK_CTX || pat == 0u) return -1;
+    int64_t off = (int64_t)ctx - TRACK_CTX - pat;
+    if (off < 0) off += PATTERN_PITCH; else if (off >= PATTERN_PITCH) off -= PATTERN_PITCH;
+    if (off < MIDI_TRACKS || off >= PATTERN_PITCH) return -1;
+    uint32_t r = (uint32_t)off - MIDI_TRACKS;
+    if (r % TRACK_SIZE != 0u || r / TRACK_SIZE >= 8u) return -1;
+    return (int)(r / TRACK_SIZE);
+}
+void fx_set_track(int track) { ensure_init(); ST->cur_track = track; }
 
 static int active_entry(uint32_t slot, uint32_t first) {
     if (!CREATIVE()) return -1;                                 /* 017: Classic = Original-Perform-FX (keine MIDI-Effekte) */
@@ -190,14 +229,14 @@ static int active_entry(uint32_t slot, uint32_t first) {
     return (int)(off / ENTRY_SIZE);
 }
 
-static void push(int32_t ticks, uint8_t type, uint8_t ch, uint8_t note, uint8_t vel, uint8_t port) {
+static void push(int32_t ticks, uint8_t type, uint8_t ch, uint8_t note, uint8_t vel, uint8_t port, int track) {
     if (ST->n >= MAXEV) return;
     volatile ev_t *e = &ST->ev[ST->n++];
-    e->ticks = ticks; e->type = type; e->ch = ch; e->note = note; e->vel = vel; e->port = port;
+    e->ticks = ticks; e->type = type; e->ch = ch; e->note = note; e->vel = vel; e->port = port; e->track = (int8_t)track;
 }
 
 /* Echos fuer eine Note-On planen (falls Delay-Pad aktiv). Aufruf unter Sperre. */
-static void plan_echo(uint8_t port, uint8_t ch, uint8_t note0, uint8_t vel0) {
+static void plan_echo(uint8_t port, uint8_t ch, uint8_t note0, uint8_t vel0, int track) {
     int k = active_entry(13, DELAY_MIDI_FIRST);
     if (k < 0) return;
     const echo_cfg_t *c = &CFG[k];
@@ -208,14 +247,14 @@ static void plan_echo(uint8_t port, uint8_t ch, uint8_t note0, uint8_t vel0) {
         note += step; if (c->alt) step = -step;
         if (note < 0 || note > 127) break;
         if (ST->n + 2u > MAXEV) break;                          /* nur paarweise (On+Off) planen */
-        push((int32_t)r * c->delay,        4, ch, (uint8_t)note, (uint8_t)v, port);
-        push((int32_t)r * c->delay + gate, 5, ch, (uint8_t)note, 64,         port);
+        push((int32_t)r * c->delay,        4, ch, (uint8_t)note, (uint8_t)v, port, track);
+        push((int32_t)r * c->delay + gate, 5, ch, (uint8_t)note, 64,         port, track);
     }
 }
 
-static void hist_add(uint8_t type, uint8_t ch, uint8_t note, uint8_t vel, uint8_t port) {
+static void hist_add(uint8_t type, uint8_t ch, uint8_t note, uint8_t vel, uint8_t port, int track) {
     volatile hist_t *h = &ST->hist[ST->hpos];
-    h->t = ST->now; h->type = type; h->ch = ch; h->note = note; h->vel = vel; h->port = port;
+    h->t = ST->now; h->type = type; h->ch = ch; h->note = note; h->vel = vel; h->port = port; h->track = (int8_t)track;
     ST->hpos = (ST->hpos + 1u) % MAXHIST;
     if (ST->hcount < MAXHIST) ST->hcount++;
 }
@@ -243,23 +282,24 @@ static void loop_snapshot(void) {                                  /* Fenster [n
         }
         volatile lnote_t *l = &SNAP->note[n++];
         l->rel = (uint16_t)(h->t - start); l->dur = (uint16_t)(dur > 0xFFFFu ? 0xFFFFu : dur);
-        l->ch = h->ch; l->note = h->note; l->vel = h->vel; l->port = h->port;
+        l->ch = h->ch; l->note = h->note; l->vel = h->vel; l->port = (uint8_t)((h->port & 1u) | ((h->track + 1) << 1));
     }
     SNAP->n = n;
 }
 
 static void loop_capture(int pad) {                                /* aus dem Schnappschuss. Aufruf unter Sperre. */
-    uint32_t len = LOOP_LEN[pad & 7], rev = (pad >= 8), n = 0, skip = SNAPLEN - len;
+    uint32_t len = LOOP_LEN[pad & 7], rev = (pad >= 8), n = 0, skip = SNAPLEN - len, mask = midi_sel();
     for (uint32_t k = 0; k < SNAP->n && k < MAXLOOP; k++) {
         volatile lnote_t *s = &SNAP->note[k];
         if (s->rel < skip) continue;                               /* nur das Ende des Originals (die letzten len Ticks) */
+        if (!is_selected((int)(s->port >> 1) - 1, mask)) continue; /* nicht gewaehlte Spuren spielen normal weiter */
         uint32_t rel = s->rel - skip, dur = s->dur;
         if (dur == 0u || dur >= len) dur = (len > 2u) ? len / 2u : 1u;
         if (rev) rel = (len - 1u - rel);
         volatile lnote_t *l = &ST->loop[n++];
         l->rel = (uint16_t)rel; l->dur = (uint16_t)dur; l->ch = s->ch; l->note = s->note; l->vel = s->vel; l->port = s->port;
     }
-    ST->loop_n = n; ST->loop_len = len; ST->loop_start = ST->now; ST->loop_pos = 0; ST->loop_pad = pad;
+    ST->loop_n = n; ST->loop_len = len; ST->loop_start = ST->now; ST->loop_pos = 0; ST->loop_pad = pad; ST->loop_mask = mask;
 }
 
 /* CC-Motion: Wert zum Zeitpunkt now berechnen */
@@ -301,14 +341,16 @@ static int on_send(uint8_t port, void *self, const midi_msg_t *m)
         }
         if (ST->loop_pad >= 0) ST->loop_pad = -2;               /* Loop bis zum naechsten Pad-Wechsel ruhen lassen */
     } else if (m->type == 4u && m->d2 > 0u) {
-        if (ST->loop_pad >= 0) {
-            forward = 0;                                        /* Loop aktiv: neue Noten stumm */
+        int track = ST->cur_track, sel = is_selected(track, midi_sel());
+        if (ST->loop_pad >= 0 && sel) {
+            forward = 0;                                        /* Loop aktiv: neue Noten gewaehlter Spuren stumm */
         } else {
-            hist_add(4, m->ch, m->d1, m->d2, port);
-            plan_echo(port, m->ch, m->d1, m->d2);
+            hist_add(4, m->ch, m->d1, m->d2, port, track);
+            if (sel) plan_echo(port, m->ch, m->d1, m->d2, track);
         }
+        if (m->ch < 16u) ST->lasttrack[port][m->ch] = (uint8_t)(track + 1);
     } else if (m->type == 5u || (m->type == 4u && m->d2 == 0u)) {
-        hist_add(5, m->ch, m->d1, 0, port);
+        hist_add(5, m->ch, m->d1, 0, port, -1);
     } else if (m->type == 6u && m->ch < 16u) {
         for (int w = 0; w < 5; w++) if (WATCH_CC[w] == m->d1) ST->ccval[port][m->ch][w] = m->d2;
     }
@@ -342,7 +384,7 @@ void tick_hook(void *queue, int ticks)
         if (e->ticks <= 0 && nd < 32u) {
             due[nd].type = e->type; due[nd].ch = e->ch; due[nd].pad = 0;
             due[nd].d1 = e->note; due[nd].d2 = e->vel; dport[nd] = e->port; nd++;
-            hist_add(e->type, e->ch, e->note, e->vel, e->port);
+            hist_add(e->type, e->ch, e->note, e->vel, e->port, e->track);
             ST->ev[i] = ST->ev[--ST->n];
         } else {
             i++;
@@ -366,7 +408,7 @@ void tick_hook(void *queue, int ticks)
 #endif
     if (ST->loop_pad == -2) {                                   /* nach Stopp: erst nach Loslassen wieder scharf */
         if (lp < 0) ST->loop_pad = -1;
-    } else if (lp != ST->loop_pad) {
+    } else if (lp != ST->loop_pad || (lp >= 0 && midi_sel() != ST->loop_mask)) {
         if (lp >= 0) { if (ST->loop_pad < 0) loop_snapshot(); loop_capture(lp); } else ST->loop_pad = -1;
     }
     for (int t = 0; t < ticks; t++) {
@@ -375,11 +417,12 @@ void tick_hook(void *queue, int ticks)
             for (uint32_t j = 0; j < ST->loop_n && nd < 32u; j++) {
                 volatile lnote_t *l = &ST->loop[j];
                 if (l->rel == pos && ST->n < MAXEV) {                /* nur mit Platz fuer das Note-Off */
+                    uint8_t lport = l->port & 1u; int ltrack = (int)(l->port >> 1) - 1;
                     due[nd].type = 4; due[nd].ch = l->ch; due[nd].pad = 0; due[nd].d1 = l->note; due[nd].d2 = l->vel;
-                    dport[nd] = l->port; nd++;
-                    hist_add(4, l->ch, l->note, l->vel, l->port);
-                    push((int32_t)l->dur, 5, l->ch, l->note, 64, l->port);
-                    plan_echo(l->port, l->ch, l->note, l->vel);
+                    dport[nd] = lport; nd++;
+                    hist_add(4, l->ch, l->note, l->vel, lport, ltrack);
+                    push((int32_t)l->dur, 5, l->ch, l->note, 64, lport, ltrack);
+                    plan_echo(lport, l->ch, l->note, l->vel, ltrack);
                 }
             }
             ST->loop_pos = (pos + 1u) % ST->loop_len;
@@ -393,8 +436,9 @@ void tick_hook(void *queue, int ticks)
 #else
     int fp = active_entry(14, REVERB_MIDI_FIRST);
 #endif
-    if (fp != ST->lfo_pad) {
-        /* altes Ziel wiederherstellen */
+    uint32_t sel_now = midi_sel();
+    if (fp != ST->lfo_pad || (fp >= 0 && sel_now != ST->lfo_mask)) {
+        /* altes Ziel wiederherstellen (auch wenn sich die Spurauswahl geaendert hat) */
         if (ST->lfo_pad >= 0) {
             const lfo_cfg_t *oc = &LFO[ST->lfo_pad];
             int w = watch_index(oc->cc);
@@ -405,7 +449,7 @@ void tick_hook(void *queue, int ticks)
             }
         }
         ST->lfo_sent[0] = ST->lfo_sent[1] = 0;
-        ST->lfo_pad = fp; ST->lfo_start = ST->now; ST->lfo_val = -1; ST->lfo_last_tick = ST->now - 2u;
+        ST->lfo_pad = fp; ST->lfo_start = ST->now; ST->lfo_val = -1; ST->lfo_last_tick = ST->now - 2u; ST->lfo_mask = sel_now;
     }
     if (ST->lfo_pad >= 0 && (ST->now - ST->lfo_last_tick) >= 2u) {
         const lfo_cfg_t *c = &LFO[ST->lfo_pad];
@@ -419,6 +463,7 @@ void tick_hook(void *queue, int ticks)
                 for (int ch = 0; ch < 16 && sentc < 4; ch++) {
                     uint32_t ln = ST->lastnote[pt][ch];
                     if (ln == 0u || (ST->now + 1u - ln) > 384u || nd >= 40u) continue;
+                    if (!is_selected((int)ST->lasttrack[pt][ch] - 1, sel_now)) continue;
                     due[nd].type = 6; due[nd].ch = (uint8_t)ch; due[nd].pad = 0; due[nd].d1 = c->cc; due[nd].d2 = (uint8_t)v; dport[nd] = (uint8_t)pt; nd++;
                     ST->lfo_sent[pt] |= (uint16_t)(1u << ch); sentc++;
                 }
@@ -438,4 +483,5 @@ void tick_hook(void *queue, int ticks)
 #ifdef HOST_TEST
 uint32_t host_pending(void) { return ST->n; }
 int host_lfo_pad(void) { return ST->lfo_pad; }
+int host_cur_track(void) { return ST->cur_track; }
 #endif

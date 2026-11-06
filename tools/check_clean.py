@@ -45,7 +45,7 @@ def main():
             bad += 1
             continue
         data = open(path, "rb").read()
-        if path.startswith("manifests/") and name.endswith(".json"):
+        if path in ("manifests/latest.json", "docs/manifest.json"):
             m = json.loads(data)
             data = base64.b64decode(m["payload_base64"])
         found = overlaps(data, firmware, windows)
