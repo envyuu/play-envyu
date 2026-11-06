@@ -64,3 +64,7 @@ The mod's compiled code is appended directly behind the stock image at `0xB069C`
 The code is MIT licensed, see [LICENSE](LICENSE). The license covers this project's own code only, not Polyend's firmware. The reverse engineering and much of the code were done with heavy use of AI assistance (Claude Code) and tested on real hardware by the maintainer.
 
 There is no support promise. Bug reports are welcome and handled when time allows.
+
+## Support
+
+If this mod is useful to you, you can support my work on [Ko-fi](https://ko-fi.com/envyu). It stays free either way.
