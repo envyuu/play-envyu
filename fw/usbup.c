@@ -143,9 +143,10 @@ static const char ORIGINAL[] = "/Firmware/PolyendPlay_v1.6.0.ppf";
 int  um_get(uint32_t k);                   /* usbmenu.c (Patch 017) */
 int  um_set(uint32_t k, int32_t v);
 void um_poll(void);
-void lr_poll(void);   /* lrec.c */
+void sl_poll(void);   /* Patch 021 */
 #endif
 void rec_poll(void) __attribute__((weak));   /* Patch 024 (usbrec.c) */
+void pf_poll(void) __attribute__((weak));    /* 045 (pf.c) */
 int  rec_request(int on) __attribute__((weak));
 void rec_status(uint32_t *st, uint32_t *ds, uint32_t *drops, uint32_t *num, int32_t *err) __attribute__((weak));
 
@@ -373,9 +374,12 @@ static void handle_line(char *l) {
         reply("OK", "FLASHING");
         return;
     }
-    if (seq(arg[0], "PEEK") && na == 2) {                /* PEEK <hex>: 4 Woerter aus dem RAM lesen */
+    if (seq(arg[0], "PEEK") && na == 2) {                /* PEEK <hex>: 4 Woerter aus RAM oder (045) Programm-Flash lesen */
         uint32_t a;
-        if (!parse_u32(arg[1], 16u, &a) || (a & 3u) || a < 0x1FFF0000u || a > 0x2002FFF0u) { reply("ERR", "ARGS"); return; }
+        /* 045: auch Programm-Flash 0x00000–0xFFFFF (MK66FX1M0: 1 MB, nur lesen; Ziel: Bootloader/Grenze 0xC0000 untersuchen).
+         * Andere Bereiche nicht: ungueltige Adressen loesen einen Busfehler aus. */
+        int ok = parse_u32(arg[1], 16u, &a) && !(a & 3u) && ((a >= 0x1FFF0000u && a <= 0x2002FFF0u) || a <= 0x000FFFF0u);
+        if (!ok) { reply("ERR", "ARGS"); return; }
 #ifndef HOST_TEST
         out_t o; o.n = 0; o_str(&o, "OK");
         for (int k = 0; k < 4; k++) { o_str(&o, " "); o_hex(&o, *(volatile uint32_t *)(a + 4u * (uint32_t)k)); }
@@ -632,10 +636,11 @@ void loop_hook(void *hal) {
 #ifndef NO_UM
     um_poll();                                                /* 017: Menue "USB Audio" anwenden, Datei lesen/schreiben */
 #ifndef NO_SL
-    lr_poll();                                                /* USB recording status */
+    sl_poll();                                                /* 021: Menue "Engines", Projekt-Engines (024) */
 #endif
 #endif
     if (rec_poll) rec_poll();                                 /* 024: USB-Eingang → Samples/USB Rec */
+    if (pf_poll) pf_poll();                                   /* 045 (12.11.): Anschlag-Blinken in Perform (pf.c) */
 }
 
 #ifdef HOST_TEST

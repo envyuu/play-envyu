@@ -5,7 +5,7 @@ usbinit_hook → usb_init, usbotg_isr 0x12B9C mit ep_hook/setup_hook, audio_tap 
 mt_ep_token → BDT EP7 – in einem Cortex-M4-Emulator (unicorn). USB-FS-Hardware wie in emu_isr.py.
 
 Geprueft:
-  1. Enumeration: 357-B-Deskriptor, SET/GET_INTERFACE IF5, ENDPT7.
+  1. Enumeration: 365-B-Deskriptor, SET/GET_INTERFACE IF5, ENDPT7.
   2. Der Mixer rechnet mit den Hooks BITGLEICH wie ohne (Vergleich mit dem 012-Image: Master-Summen, L/R).
   3. Jeder empfangene Frame jedes Kanals = erwartete Quelle (Spur x Lautstaerke-Rampe, Delay/Reverb-Muster, Master).
   4. Preset-Wechsel waehrend des Streamings, 11-Kanal-Alt, Stereo (IF4) parallel = derselbe Master.
@@ -253,7 +253,7 @@ def main():
     dev.call(nm["usbinit_hook"])
     check(dev.r32(MT) == 0x4D54A015, "Multitrack-Zustand initialisiert")
     dev.bus_reset()
-    desc = bytes(img[nm["ua_cfg_desc"]:nm["ua_cfg_desc"] + 357])
+    desc = bytes(img[nm["ua_cfg_desc"]:nm["ua_cfg_desc"] + 365])
     cd = dev.control(setup(0x80, 6, 0x0200, 0, 0xFFFF))
     check(cd == desc, f"Config-Deskriptor {len(cd) if cd else 0} Byte")
     dev.control(setup(0x00, 5, 9, 0, 0)); dev.control(setup(0x00, 9, 1, 0, 0))

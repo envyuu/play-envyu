@@ -7,7 +7,7 @@ Vergleich jeweils mit dem Image von Patch 019 (ohne USB-Eingang) bei gleichen Sp
 
 Geprueft:
   1. Ohne USB-Eingang: Mixer-Summen und Send-Eingaenge bitgleich mit 019 (Hooks aktiv, aber wirkungslos).
-  2. Neuanmeldung "Stereo + In": 323-B-Deskriptor, SET_INTERFACE IF5, ENDPT6 0x1C, ENDPT7 0x14, Rueckmeldung 3 Byte.
+  2. Neuanmeldung "Stereo + In": 331-B-Deskriptor, SET_INTERFACE IF5, ENDPT6 0x1C, ENDPT7 0x14, Rueckmeldung 3 Byte.
   3. Streaming PC → Play nach der Rueckmeldung: Master-Summen = 019 + USB-Signal (jeder Frame, lueckenlos),
      Delay-/Reverb-Eingang = 019 + 0,25 * USB mono, Stereo-Ausgang EP 0x86 liefert parallel den Mix (Loopback).
   4. Original-Zusatzeingang der Firmware (Stream+0x150) wird weiter aufgerufen und addiert.
@@ -92,12 +92,15 @@ def main():
     dev.w32(UM + 0x44, 0); dev.w32(UM + 0x48, 0x7FFFFFFF)  # keine SD im Emulator: nicht lesen, nicht speichern
     def poll_at(ms): dev.w32(MILLIS, ms); dev.call(nm["um_poll"] | 1)
     dev.w32(UM + 4, 3); poll_at(10000)
+    check(dev.r32(UI + 0x44) == 0 and dev.r32(UI + 0x48) == 0, "045: Audio In Sends standardmaessig Off")
+    dev.w32(UM + 0xE8, 25); dev.w32(UM + 0xEC, 25)        # 045: Seite "Audio In" auf 25 % (wie der feste Wert bis 044)
     check(dev.hw.r[0x108] == 0, "getrennt (Pullup aus)")
     poll_at(10450)
+    check(dev.r32(UI + 0x44) == 16384 and dev.r32(UI + 0x48) == 16384, "045: 25 % im Menue → Send 0,25 angewendet")
     check(dev.hw.r[0x108] == 0x10 and dev.r32(UI + 4) == 1, "verbunden, ui-Modus 1")
     dev.bus_reset()
     full = dev.control(setup(0x80, 6, 0x0200, 0, 0xFFFF))
-    desc = bytes(img[nm["UI_DESC_IN"]:nm["UI_DESC_IN"] + 323])
+    desc = bytes(img[nm["UI_DESC_IN"]:nm["UI_DESC_IN"] + 331])
     check(full == desc and full[4] == 6, f"GET_DESCRIPTOR {len(full) if full else 0} Byte = UI_DESC_IN, 6 Interfaces")
     dev.control(setup(0x00, 5, 9, 0, 0)); dev.control(setup(0x00, 9, 1, 0, 0))
     check(dev.control(setup(0x81, 0x0A, 0, 5, 1)) == b"\x00", "GET_INTERFACE IF5 → 0")
@@ -205,7 +208,7 @@ def main():
     check(dev.r32(UI + 4) == 0, "Modus 0 nach 'Stereo + Multi'")
     dev.bus_reset()
     full = dev.control(setup(0x80, 6, 0x0200, 0, 0xFFFF))
-    check(full is not None and len(full) == 357, f"Deskriptor wieder 357 Byte")
+    check(full is not None and len(full) == 365, f"Deskriptor wieder 365 Byte")
     dev.control(setup(0x00, 5, 9, 0, 0)); dev.control(setup(0x00, 9, 1, 0, 0))
     check(dev.control(setup(0x01, 0x0B, 1, 5, 0)) == b"" and dev.r32(MT + 0xC) == 1, "SET_INTERFACE IF5 alt 1 → Multitrack (mt alt 1)")
     sizes = set()

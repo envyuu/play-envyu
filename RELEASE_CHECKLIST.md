@@ -18,6 +18,8 @@
 
 - [ ] `fw/test_all.sh` passes, also with `BASELINE_DIR`, `BEAT_WAV` and `BEAT_REC` set
 - [ ] `tools/release.sh VERSION` reports `patcher output == build`
+- [ ] `tools/test_patchers.py` reports ok for the Python and the browser patcher (needs macOS `jsc` or Node)
+- [ ] Safety net: `fw/emu_guard.py` passes; on the device, PEEK `0x1FFF9A38` reads 0 after a cold start
 - [ ] `tools/check_clean.py stock/firmware.bin` reports 0 problems; review its overlap list
 - [ ] Build flashed and cold-started on a real device
 

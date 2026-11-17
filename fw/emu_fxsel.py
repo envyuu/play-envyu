@@ -10,6 +10,7 @@ import os, struct, subprocess, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from unicorn.arm_const import UC_ARM_REG_R1  # noqa: E402
+import veneer as VN  # 13.11.: Weichen (Sicherheitsnetz) aufloesen
 from emu_nis import Emu, load_ppf  # noqa: E402
 
 fails = 0
@@ -130,7 +131,7 @@ del got
 clear()
 e.call(e.r32(arp_vt + 0x10), arp_step, 11, 0); e.call(e.r32(e.r32(ar3) + 0x10), ar3, 11, 0)
 
-arp_ok = e.r32(0xAA324) & ~1 == S["arp_chord_hook"]
+arp_ok = VN.follow(e.img, e.r32(0xAA324)) & ~1 == S["arp_chord_hook"]
 check(arp_ok, "vtable 0xAA324 zeigt auf arp_chord_hook")
 print(f"GESAMT: {'FEHLER' if fails else 'alles OK'} ({fails} Fehler)")
 sys.exit(1 if fails else 0)

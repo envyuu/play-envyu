@@ -14,15 +14,17 @@ int um_get(uint32_t k);
 int um_set(uint32_t k, int32_t v);
 
 uint8_t host_um_ram[0x100];
+int um_rec_wait(void); int um_rec_pause(void);
+uint8_t host_rs_ram[0x20];          /* 045: Wait For Signal / Pause On Silence */
 uint8_t host_names_ram[32 * 16];
-uint8_t host_desc_ram[357];
+uint8_t host_desc_ram[365];
 uint8_t host_mtcfg[0x40];
 uint8_t host_flash_list[0x6C];
 volatile uint8_t host_usb0_control = 0x10, host_usb_configuration = 1;
 uint32_t host_millis = 0;
 
 /* Deskriptor "Stereo + Multi" (Platzhalter mit echtem Kopf; Inhalt egal, verglichen wird byteweise) */
-uint8_t ua_cfg_desc[357];
+uint8_t ua_cfg_desc[365];
 static const char *ON[32], *CN[32];
 const char *FX_NAMES[32];
 const char *const host_orig_names[32] = {
@@ -95,7 +97,7 @@ static void boot(void) {
     host_millis = 0; nenum = nmenu = 0; arp_calls = 0; arp_last = -1; ua_stops = mt_stops = 0;
     host_usb0_control = 0; um_early_init(); host_usb0_control = 0x10;   /* usb_init setzt den Pullup */
     uint32_t mg = 0x4D544346u; memcpy(host_mtcfg, &mg, 4); host_mtcfg[4] = 0; host_mtcfg[5] = 1;   /* mt_init */
-    memcpy(host_desc_ram, ua_cfg_desc, 357);                     /* ua_init */
+    memcpy(host_desc_ram, ua_cfg_desc, 365);                     /* ua_init */
 }
 static int names_are(const char *const *t) {
     for (int i = 0; i < 32; i++) if (strncmp((char *)host_names_ram + 16 * i, t[i], 16) != 0 || host_names_ram[16 * i + 15] != 0) return 0;
@@ -103,34 +105,54 @@ static int names_are(const char *const *t) {
 }
 static int list_len(void) { return host_um_ram[0x70 + 12 + 8] | host_um_ram[0x70 + 12 + 9] << 8; }
 
+/* 045: Seite "Audio In" */
+void ui_in_build(void *menu, void *parent);
+void ab_build(void *menu, void *parent);   /* 046: Seite About */
+void env_build(void *menu, void *parent);  /* 046: Seite envyu Settings */
+static int32_t sends[2] = { -1, -1 }; static int send_calls = 0;
+void ui_set_send(uint32_t which, int32_t q16) { if (which < 2u) sends[which] = q16; send_calls++; }
+
 int main(int argc, char **argv) {
     setvbuf(stdout, 0, _IONBF, 0);
     srand(argc > 1 ? (unsigned)atoi(argv[1]) : 7u);
-    for (int i = 0; i < 357; i++) ua_cfg_desc[i] = (uint8_t)(i * 7 + 3);
-    ua_cfg_desc[0] = 9; ua_cfg_desc[1] = 2; ua_cfg_desc[2] = 357 & 0xFF; ua_cfg_desc[3] = 357 >> 8; ua_cfg_desc[4] = 6;
+    for (int i = 0; i < 365; i++) ua_cfg_desc[i] = (uint8_t)(i * 7 + 3);
+    ua_cfg_desc[0] = 9; ua_cfg_desc[1] = 2; ua_cfg_desc[2] = 365 & 0xFF; ua_cfg_desc[3] = 365 >> 8; ua_cfg_desc[4] = 6;
     static char cn[32][20];
     for (int i = 0; i < 32; i++) { snprintf(cn[i], sizeof cn[i], "FX Name %02d", i); FX_NAMES[i] = cn[i]; CN[i] = cn[i]; ON[i] = host_orig_names[i]; }
-    /* Flash-Liste wie im gepatchten Image: Eintrag 1 = {0x0200, 0, 0x1FFFD4C0, 357} */
+    /* Flash-Liste wie im gepatchten Image: Eintrag 1 = {0x0200, 0, 0x1FFFD4C0, 365} */
     memset(host_flash_list, 0, sizeof host_flash_list);
     host_flash_list[12 + 1] = 0x02; uint32_t a = 0x1FFFD4C0u; memcpy(host_flash_list + 12 + 4, &a, 4);
-    host_flash_list[12 + 8] = 357 & 0xFF; host_flash_list[12 + 9] = 357 >> 8;
+    host_flash_list[12 + 8] = 365 & 0xFF; host_flash_list[12 + 9] = 365 >> 8;
 
     printf("== 1) Frueh-Init\n");
     boot();
     check("Magic, Standardwerte 2/0/1/1", U32(0) == 0x55AEC017u && V(0) == 2 && V(1) == 0 && V(2) == 1 && V(3) == 1);
     check("creative-Wert liegt bei +0x10 (fx.c/arp.c lesen 0x1FFFD310)", V(3) == 1 && host_um_ram[0x10] == 1);
-    check("Deskriptorliste kopiert, Laenge 357", memcmp(host_um_ram + 0x70, host_flash_list, 0x6C) == 0 && list_len() == 357);
+    check("Deskriptorliste kopiert, Laenge 365", memcmp(host_um_ram + 0x70, host_flash_list, 0x6C) == 0 && list_len() == 365);
     check("Effektnamen = FX-Suite (Creative), nullterminiert", names_are(CN));
 
     printf("== 2) Menue\n");
     int parent;
     um_menu_hook((void *)0x1234, &parent, "Settings", 0x36141u, 0);
-    check("Hauptmenue: erst \"USB Audio\", dann \"Settings\" unveraendert", nmenu == 2 && strcmp(menus[0].name, "USB Audio") == 0 && menus[0].adj == 0
-          && menus[0].parent == &parent && strcmp(menus[1].name, "Settings") == 0 && menus[1].fn == 0x36141u && menus[1].parent == &parent);
+    check("046: Hauptmenue \"USB Audio\", \"envyu Settings\", dann \"Settings\" unveraendert", nmenu == 3 && strcmp(menus[0].name, "USB Audio") == 0 && menus[0].adj == 0
+          && menus[0].parent == &parent && strcmp(menus[1].name, "envyu Settings") == 0 && menus[1].fn == (uint32_t)(uintptr_t)env_build && menus[1].parent == &parent
+          && strcmp(menus[2].name, "Settings") == 0 && menus[2].fn == 0x36141u && menus[2].parent == &parent && nenum == 0);
     check("USB-Audio-Builder ist um_build", menus[0].fn == (uint32_t)(uintptr_t)um_build);
+    { int envp; nmenu = 0; nenum = 0; env_build((void *)0x77, &envp);
+      check("045: envyu Settings: \"Color Mode\" (Normal/Red-Green/Blue-Yellow)", nenum == 2 && strcmp(enums[0].name, "Color Mode") == 0 && enums[0].parent == &envp && enums[0].max == 2
+            && strcmp(enums[0].tab[1], "Red-Green") == 0 && strcmp(enums[0].tab[2], "Blue-Yellow") == 0);
+      check("12.11.: envyu Settings: \"Keep Selection\" Off/On", strcmp(enums[1].name, "Keep Selection") == 0 && enums[1].parent == &envp && enums[1].max == 1
+            && strcmp(enums[1].tab[0], "Off") == 0 && strcmp(enums[1].tab[1], "On") == 0);
+      check("046: envyu Settings: Unterseite \"About\" → ab_build", nmenu == 1 && strcmp(menus[0].name, "About") == 0 && menus[0].fn == (uint32_t)(uintptr_t)ab_build && menus[0].parent == &envp); }
+    nenum = 0;
     int sub;
+    nmenu = 0;
     um_build((void *)0x99, &sub);
-    check("5 Eintraege (026: + Rec Mono/Stereo)", nenum == 5);
+    check("046: USB Audio enthaelt Unterseite \"Audio In\" → ui_in_build", nmenu == 1 && strcmp(menus[0].name, "Audio In") == 0 && menus[0].fn == (uint32_t)(uintptr_t)ui_in_build && menus[0].parent == &sub);
+    check("7 Eintraege (026: + Rec Mono/Stereo, 045: + Wait For Signal, Pause On Silence)", nenum == 7);
+    check("045: Wait For Signal / Pause On Silence, Off/On, Standard On", nenum == 7 && strcmp(enums[5].name, "Wait For Signal") == 0 && strcmp(enums[6].name, "Pause On Silence") == 0
+          && enums[5].max == 1 && enums[6].max == 1 && strcmp(enums[5].tab[1], "On") == 0 && strcmp(enums[6].tab[0], "Off") == 0
+          && *enums[5].val == 1 && *enums[6].val == 1 && um_rec_wait() == 1 && um_rec_pause() == 1);
     const char *nm[4] = { "Audio Out", "Multitrack 9/10", "Track Level", "FX Mode" };
     uint32_t mx[4] = { 3, 1, 1, 1 };                       /* 020: Audio Out + "Stereo + In" */
     int ok = 1;
@@ -155,6 +177,25 @@ int main(int argc, char **argv) {
     run_ms(500); *enums[3].val = 0; run_ms(4000);
     file_buf[file_len > 0 ? file_len : 0] = 0;
     check("fruehe Aenderung wird nach dem Lesen gespeichert", file_len > 0 && strstr(file_buf, "creative=0\n"));
+    printf("== 3c) 045: Color Mode speichern und laden\n");
+    { extern uint8_t host_cb_ram[0x10]; int32_t *cbm = (int32_t *)(void *)host_cb_ram;
+      cbm[0] = 2; run_ms(4000); file_buf[file_len > 0 ? file_len : 0] = 0;
+      check("color=2 in usbaudio.cfg", file_len > 0 && strstr(file_buf, "color=2\n") != 0);
+      check("Kopf + Zeilen passen in 256 Byte", file_len > 0 && file_len < 256);
+      boot(); sd_ready_at = 0; run_ms(1500);
+      check("nach Neustart: Color Mode 2 gelesen", cbm[0] == 2 && cbm[1] == 2); }
+    printf("== 3d) 045: Wait For Signal / Pause On Silence speichern und laden\n");
+    { int32_t *rs = (int32_t *)(void *)(host_rs_ram + 4);
+      check("Standard On", rs[0] == 1 && rs[1] == 1 && um_rec_wait() && um_rec_pause());
+      rs[1] = 0; run_ms(4000); file_buf[file_len > 0 ? file_len : 0] = 0;
+      check("rwait=1 rpause=0 in usbaudio.cfg", file_len > 0 && strstr(file_buf, "\nrwait=1\nrpause=0\n") != 0);
+      check("Kopf + Zeilen passen in 256 Byte (mit rwait/rpause)", file_len > 0 && file_len < 256);
+      boot(); sd_ready_at = 0; run_ms(1500);
+      check("nach Neustart: Pause Off gelesen, Wait On", rs[0] == 1 && rs[1] == 0 && um_rec_wait() == 1 && um_rec_pause() == 0);
+      int w0x = writes; run_ms(3000); check("Lesen loest kein Schreiben aus", writes == w0x);
+      rs[0] = 0; rs[1] = 1; run_ms(4000); file_buf[file_len > 0 ? file_len : 0] = 0;
+      check("rwait=0 rpause=1", strstr(file_buf, "\nrwait=0\nrpause=1\n") != 0 && !um_rec_wait() && um_rec_pause());
+      rs[0] = 7; run_ms(10); check("ungueltiger Wert → On", rs[0] == 1); }
     file_len = -1; boot(); sd_ready_at = 0; run_ms(1500); nenum = 0; um_build(0, &sub);
 
     printf("== 4) Aenderung im Menue → anwenden + nach 1,5 s speichern\n");
@@ -184,20 +225,20 @@ int main(int argc, char **argv) {
     check("Stereo: sofort getrennt (Pullup aus, unkonfiguriert, Streams gestoppt)", host_usb0_control == 0 && host_usb_configuration == 0 && ua_stops == r0 + 1 && mt_stops >= 1);
     run_ms(300); check("nach 300 ms noch getrennt", host_usb0_control == 0);
     run_ms(150);
-    check("nach 400 ms: Pullup an, Laenge 240", host_usb0_control == 0x10 && list_len() == 240);
-    check("Stereo-Deskriptor im RAM: Kopf 240 B / 5 Interfaces", host_desc_ram[0] == 9 && host_desc_ram[2] == 240 && host_desc_ram[3] == 0 && host_desc_ram[4] == 5);
+    check("nach 400 ms: Pullup an, Laenge 248", host_usb0_control == 0x10 && list_len() == 248);
+    check("Stereo-Deskriptor im RAM: Kopf 248 B / 5 Interfaces", host_desc_ram[0] == 9 && host_desc_ram[2] == 248 && host_desc_ram[3] == 0 && host_desc_ram[4] == 5);
     *enums[0].val = 0; run_ms(500);
     check("Off: Laenge 149, Kopf 149 B / 3 Interfaces, Rest = ua_cfg_desc", list_len() == 149 && host_desc_ram[2] == 149 && host_desc_ram[3] == 0 && host_desc_ram[4] == 3
           && memcmp(host_desc_ram + 5, ua_cfg_desc + 5, 144) == 0);
     *enums[0].val = 2; run_ms(500);
-    check("Stereo + Multi: 357 B, identisch mit ua_cfg_desc", list_len() == 357 && memcmp(host_desc_ram, ua_cfg_desc, 357) == 0 && host_usb0_control == 0x10);
+    check("Stereo + Multi: 365 B, identisch mit ua_cfg_desc", list_len() == 365 && memcmp(host_desc_ram, ua_cfg_desc, 365) == 0 && host_usb0_control == 0x10);
     check("Zaehler Neuanmeldungen = 3", U32(0x58) == 3);
     *enums[0].val = 1; run_ms(100); *enums[0].val = 2; run_ms(500);
-    check("Wechsel waehrend getrennt: endet beim letzten Wert", list_len() == 357 && host_usb0_control == 0x10 && U32(0x58) == 4);
+    check("Wechsel waehrend getrennt: endet beim letzten Wert", list_len() == 365 && host_usb0_control == 0x10 && U32(0x58) == 4);
     *enums[0].val = 1; run_ms(2000);
     file_buf[file_len] = 0; check("gespeichert usb=1", strstr(file_buf, "usb=1\n") != 0);
     boot(); sd_ready_at = 0; run_ms(1500);
-    check("Neustart mit usb=1: Neuanmeldung auf Stereo", list_len() == 240 && host_usb0_control == 0x10 && U32(0x58) == 1);
+    check("Neustart mit usb=1: Neuanmeldung auf Stereo", list_len() == 248 && host_usb0_control == 0x10 && U32(0x58) == 1);
 
     printf("== 7) Kaputte / fremde Datei\n");
     const char *bad[] = { "usb=7\nmt=9\nfader=x\ncreative=1", "garbage\n\n=\nusb=\n=1\nusb=0001\n", "usb=0\r\nmt=1\r\n#creative=0\r\n",
@@ -238,7 +279,7 @@ int main(int argc, char **argv) {
     int good = 1;
     for (int k = 0; k < 4; k++) good &= V(k) >= 0 && V(k) <= (int)mx[k];
     check("Werte gueltig, Namen passend zum Modus", good && names_are(V(3) ? CN : ON));
-    check("Deskriptor passt zu Audio Out", list_len() == (V(0) == 2 ? 357 : V(0) == 1 ? 240 : 149) && host_usb0_control == 0x10);
+    check("Deskriptor passt zu Audio Out", list_len() == (V(0) == 2 ? 365 : V(0) == 1 ? 248 : 149) && host_usb0_control == 0x10);
     check("MT-Konfiguration passt", host_mtcfg[4] == V(1) && (host_mtcfg[5] & 1) == V(2));
     if (U32(0x44)) {
         file_buf[file_len > 0 ? file_len : 0] = 0;
@@ -247,6 +288,22 @@ int main(int argc, char **argv) {
         check("Datei = aktueller Stand (oder unveraendert Standard ohne Datei)", (file_len > 0 && strstr(file_buf, want)) || (file_len < 0 && V(0) == 2 && V(1) == 0 && V(2) == 1 && V(3) == 1));
     }
     check("keine Lecks, keine offenen Dateien", mallocs == 0 && opens == 0);
+
+    printf("== 11) Audio In (045): Sends, Datei, Laden\n");
+    sd_ready_at = 0; sd_fail_write = 0; file_len = -1; boot(); run_ms(3000);
+    check("Standard: beide Sends Off, angewendet", sends[0] == 0 && sends[1] == 0 && send_calls > 0);
+    { int par2; nenum = 0; ui_in_build(0, &par2);
+      check("Seite: Delay Send / Reverb Send, Off + 1…100 %", nenum == 2 && strcmp(enums[0].name, "Delay Send") == 0 && strcmp(enums[1].name, "Reverb Send") == 0
+            && enums[0].max == 100 && strcmp(enums[0].tab[0], "Off") == 0 && strcmp(enums[0].tab[25], "25%") == 0 && strcmp(enums[1].tab[100], "100%") == 0);
+      *enums[0].val = 100; *enums[1].val = 25; run_ms(3000);
+      check("Werte angewendet (100 % / 25 %)", sends[0] == 65536 && sends[1] == 16384);
+      file_buf[file_len > 0 ? file_len : 0] = 0;
+      check("gespeichert: indly=100, inrev=25, usb-Zeile intakt", file_len > 0 && strstr(file_buf, "indly=100\n") && strstr(file_buf, "inrev=25\n") && strstr(file_buf, "\nusb="));
+      check("Datei passt in den Puffer (< 256)", file_len > 0 && file_len < 256); }
+    boot(); run_ms(3000);
+    check("nach Neustart gelesen und angewendet", sends[0] == 65536 && sends[1] == 16384);
+    { static const char T9[] = "usb=2\nindly=101\ninrev=100\n"; memcpy(file_buf, T9, sizeof T9 - 1); file_len = (int)sizeof T9 - 1; } boot(); run_ms(3000);
+    check("ungueltiger Wert ignoriert, gueltiger gelesen", sends[0] == 0 && sends[1] == 65536);
 
     printf("GESAMT: %s (%d Fehler)\n", fails ? "FEHLER" : "alles OK", fails);
     return fails != 0;

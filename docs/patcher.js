@@ -23,24 +23,37 @@
   function apply(raw, patches, payloadAddr, payload) {
     const text = Array.from({ length: Math.ceil(raw.length / 8192) }, (_, i) => String.fromCharCode.apply(null, raw.subarray(i * 8192, (i + 1) * 8192))).join('');
     const lines = text.split('\n');
-    let image = 1, base = 0, lastBase = null;
+    let image = 1, base = 0, lastBase = null, addrTyp = 4;
     for (const line of lines) {
       const body = line.replace(/\r+$/, '');
       if (body[0] !== ':') continue;
       const r = parse(body);
-      if (r[3] === 2) base = ((r[4] << 8) | r[5]) << 4;
-      else if (r[3] === 4) base = ((r[4] << 8) | r[5]) * 65536;
+      if (r[3] === 2) { base = ((r[4] << 8) | r[5]) << 4; addrTyp = 2; }
+      else if (r[3] === 4) { base = ((r[4] << 8) | r[5]) * 65536; addrTyp = 4; }
       else if (r[3] === 0) lastBase = base;
       else if (r[3] === 1) break;
     }
-    if (!(lastBase <= payloadAddr && payloadAddr + payload.length <= lastBase + 0x10000)) throw new Error('The mod does not fit the last firmware segment.');
+    if (!(lastBase <= payloadAddr && payloadAddr < lastBase + 0x10000)) throw new Error('The mod does not start in the last firmware segment.');
+    if (payloadAddr + payload.length > 0x100000) throw new Error('The mod does not fit the 1 MB program flash.');
+    // Gapless data; crossing a 64 KB boundary starts the next segment with a record of the stock file's type (as play_patch.py).
     const appended = [];
-    for (let o = 0; o < payload.length; o += 16) {
-      const chunk = payload.subarray(o, o + 16), off = payloadAddr + o - lastBase;
+    let seg = lastBase;
+    for (let o = 0; o < payload.length;) {
+      const pos = payloadAddr + o;
+      if (pos >= seg + 0x10000) {
+        seg = pos - (pos % 0x10000);
+        const v = addrTyp === 2 ? seg >> 4 : Math.floor(seg / 65536);
+        const e = new Uint8Array([2, 0, 0, addrTyp, (v >> 8) & 255, v & 255, 0]);
+        e[6] = (256 - sum8(e, 6)) & 255;
+        appended.push(rec2line(e) + '\r');
+      }
+      const n = Math.min(16, payload.length - o, seg + 0x10000 - pos);
+      const chunk = payload.subarray(o, o + n), off = pos - seg;
       const r = new Uint8Array(chunk.length + 5);
       r[0] = chunk.length; r[1] = off >> 8; r[2] = off & 255; r[3] = 0; r.set(chunk, 4);
       r[r.length - 1] = (256 - sum8(r, r.length - 1)) & 255;
       appended.push(rec2line(r) + '\r');
+      o += n;
     }
     const out = [], applied = new Set();
     image = 1; base = 0;

@@ -168,9 +168,11 @@ def main():
     want = set()
     for a in LIT: want |= set(range(a, a + 4))
     want |= {0x3894E, 0x38DE6} | set(range(0x38DC0, 0x38DC4))
+    for a in (0x3891C, 0x38AFC, 0x38C0C, 0x38D64, 0x38E70, 0x38B60, 0x38D5C): want |= set(range(a, a + 4))   # 11.11.: Audio-Liste, rz_*
+    want |= {0x38950, 0x38DE8}
     check(set(diff) <= want, f"nur erwartete Bytes geaendert ({len(diff)} Byte)")
     check(all(struct.unpack_from("<I", img, a)[0] == NL for a in LIT), "6 Literale → NIS_LIST")
-    check(img[0x3894E] == 5 and img[0x38DE6] == 5, "Grenzen 3 → 5")
+    check(img[0x3894E] == 14 and img[0x38DE6] == 14, "Grenzen 3 → 14 (045: + Note Length, Humanize, Octave Jump; 11.11.: + 5; 12.11.: + Scatter Steps)")
     check(struct.unpack_from("<I", img, 0x3921C)[0] == 0x1FFF2190, "Literal im Konstruktor unveraendert")
 
     print("== 1. Randomize_initTypes: Original-Liste == NIS_LIST 0–3")
@@ -229,6 +231,21 @@ def main():
     calls = e.r32(NIS_RAM + 4)
     check(e.r32(NIS_RAM) == 0x4E495331 and calls > 0, f"Diagnose: {calls} Aufrufe, {e.r32(NIS_RAM + 8)} geaendert, {e.r32(NIS_RAM + 12)} ausserhalb")
 
+    print("== 3b. 045: neue Typen Note Length / Humanize / Octave Jump (echter Vorschau-Pfad)")
+    for typ, idx, val, lo_, hi_, name_ in ((6, 1, 240, 180, 720, "Note Length"), (7, 20, 0, -4, 4, "Humanize"), (8, 6, 60, 48, 72, "Octave Jump")):
+        for pct in (0.5, 1.0):
+            setup_env(e, N, [60] * N)
+            e.w32(R + 0xC, typ); e.wf(R + 0x30, pct)
+            for i in range(8): e.w32(R + 0x10 + 4 * i, (0x2468ACE1 * (i + 3) + typ) & 0x7FFFFFFF)
+            vals = []
+            for i in range(N):
+                v = e.call(0x38C10, R, STEPS + 0x40 * i, idx, val, 0) & 0xFFFF
+                vals.append(v - 0x10000 if v & 0x8000 else v)
+            lo_p, hi_p = val + int((lo_ - val) * pct) - 1, val + int((hi_ - val) * pct) + 1
+            ok_ = all(lo_p <= v <= hi_p for v in vals) and len(set(vals)) > 1
+            if typ == 8: ok_ = set(vals) <= {48, 60, 72} and {48, 72} <= set(vals) and (pct < 1 or 60 not in vals)
+            if typ == 7: ok_ = all(-4 <= v <= 4 for v in vals) and len(set(vals)) >= 2 and (pct < 1 or 0 not in vals)
+            check(ok_, f"{name_} {int(pct * 100)} %: {min(vals)}…{max(vals)}, {len(set(vals))} Werte" + ("" if ok_ else f" {sorted(set(vals))[:12]}"))
     print("== 4. „1 Octave“ aus der Flash-Liste == Original-Image")
     eo.stub(0x8598); eo.stub(0x859C)
     for e_ in (eo, ep): e_.w32(SCALE_T, 3); e_.w32(SCALE_R, 2)
@@ -242,9 +259,9 @@ def main():
 
     print("== 5. Typ wechseln und Anzeige")
     setup_env(e, 4, [60] * 4)
-    e.w32(R + 0xC, 3); e.call(0x3893C, R, 5); check(e.r32(R + 0xC) == 5, f"3 + 5 → {e.r32(R + 0xC)} (max 5)")
-    e.call(0x3893C, R, 1); check(e.r32(R + 0xC) == 5, "5 + 1 → 5")
-    e.call(0x3893C, R, -9); check(e.r32(R + 0xC) == 0, "→ 0")
+    e.w32(R + 0xC, 3); e.call(0x3893C, R, 19); check(e.r32(R + 0xC) == 14, f"3 + 19 → {e.r32(R + 0xC)} (max 14)")
+    e.call(0x3893C, R, 1); check(e.r32(R + 0xC) == 14, "14 + 1 → 14")
+    e.call(0x3893C, R, -19); check(e.r32(R + 0xC) == 0, "→ 0")
     eo_ = Emu(orig); eo_.stub(0x8598); eo_.stub(0x859C); setup_env(eo_, 4, [60] * 4)
     eo_.w32(R + 0xC, 3); eo_.call(0x3893C, R, 5); check(eo_.r32(R + 0xC) == 3, "Original: max 3 (Gegenprobe)")
     got = {}
@@ -259,7 +276,7 @@ def main():
         e.w32(SCALE_T, st); e.w32(SCALE_R, rt); e.w32(R + 0xC, typ)
         e.call(0x38D74, R, 0x20020800)
         shown = e.cstr(0x20001F51)
-        check(shown == want and got.get("max") == (100, 5), f"Typ {typ}: Anzeige '{shown}', Popup-Grenze {got.get('max')}")
+        check(shown == want and got.get("max") == (100, 14), f"Typ {typ}: Anzeige '{shown}', Popup-Grenze {got.get('max')}")
 
     print(f"{'OK' if not fails else 'FEHLER'}: {checks} Pruefungen, {fails} Fehler")
     sys.exit(1 if fails else 0)

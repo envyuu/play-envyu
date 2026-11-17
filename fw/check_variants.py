@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Patch 017: prueft die Deskriptor-Varianten, die usbmenu.c zur Laufzeit nach 0x1FFFD4C0 kopiert.
-  Stereo (240 B): muss bytegleich mit 012/desc.bin im gebauten fx.bin liegen, UAC-Pruefung mit dem Pruefer aus 012.
+  Stereo (248 B): 012/desc.bin + IAD Audio (046) muss bytegleich im gebauten fx.bin liegen, UAC- und IAD-Pruefung.
   Off (149 B):    ua_cfg_desc[0:149] mit wTotalLength 149 und bNumInterfaces 3 – Kettenpruefung, nur IF0..IF2,
                   Bytes 9..149 identisch mit dem Original-Deskriptor der Firmware (CDC + MIDI)."""
 import subprocess, sys, os
 here = os.path.dirname(os.path.abspath(__file__))
 fx = open(os.path.join(here, "fx.bin"), "rb").read()
-st = open(os.path.join(here, "fixtures/desc_stereo.bin"), "rb").read()
+st012 = open(os.path.join(here, "fixtures/desc_stereo.bin"), "rb").read()
+st = bytearray(st012[:149] + bytes([8, 0x0B, 3, 2, 1, 1, 0, 0]) + st012[149:]); st[2] = len(st) & 0xFF; st[3] = len(st) >> 8   # 046: + IAD Audio
+st = bytes(st)
+open(os.path.join(here, "desc_st_fw.bin"), "wb").write(st)
 full = open(os.path.join(here, "desc_fw.bin"), "rb").read()
 img = open(os.path.join(here, "../stock/firmware.bin"), "rb").read()
 ok = True
@@ -14,10 +17,10 @@ def say(c, t):
     global ok
     print(("  ok   " if c else "  FEHLER ") + t); ok &= bool(c)
 
-say(fx.count(st) == 1, "Stereo-Deskriptor (240 B) genau einmal im Binary, bytegleich mit 012")
-r = subprocess.run([sys.executable, "-I", os.path.join(here, "fixtures/check_desc_stereo.py"), os.path.join(here, "fixtures/desc_stereo.bin"),
+say(fx.count(st) == 1, "Stereo-Deskriptor (248 B) genau einmal im Binary, = 012 + IAD Audio (046)")
+r = subprocess.run([sys.executable, "-I", os.path.join(here, "check_desc.py"), os.path.join(here, "desc_st_fw.bin"),
                     "--orig", os.path.join(here, "../stock/firmware.bin")], capture_output=True, text=True)
-say(r.returncode == 0 and "ERGEBNIS: OK" in r.stdout, "Stereo: UAC-Pruefung (Pruefer aus 012): " + r.stdout.strip().splitlines()[-1])
+say(r.returncode == 0 and "ERGEBNIS: OK" in r.stdout, "Stereo: UAC-Pruefung (check_desc.py mit IAD-Regel): " + r.stdout.strip().splitlines()[-1])
 
 off = bytearray(full[:149]); off[2] = 149; off[3] = 0; off[4] = 3
 i, ifs, chain = 0, set(), True

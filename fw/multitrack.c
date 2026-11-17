@@ -20,7 +20,7 @@
  *  - Verbraucher (USB-ISR, Prio 0x70): Fuellstandsregler wie 012, Pakete 44/45 Frames (selten 43).
  *
  * RAM (SRAM_L, eigener Bereich 0x1FFFD400..0x1FFFFF00):
- *   0x1FFFD400 Zustand mt_t (0x80) · 0x1FFFD480 Konfiguration mt_cfg_t (0x40) · 0x1FFFD4C0 Konfig.-Deskriptor (357 B)
+ *   0x1FFFD400 Zustand mt_t (0x80) · 0x1FFFD480 Konfiguration mt_cfg_t (0x40) · 0x1FFFD4C0 Konfig.-Deskriptor (365 B, endet 0x1FFFD62D)
  *   0x1FFFD630 / 0x1FFFDA10 Sendepuffer (je 990 B) · 0x1FFFDE00 Ring 384 Frames x 22 B = 8448 B → Ende genau 0x1FFFFF00
  *
  * Mit -DHOST_TEST wird gegen Attrappen fuer einen PC-Testlauf uebersetzt (mt_test.c).

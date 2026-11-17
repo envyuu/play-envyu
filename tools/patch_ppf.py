@@ -12,7 +12,7 @@ Only the data records covering the patched bytes are rewritten (new checksum),
 every other byte of the file - including line endings and the other image - stays identical.
 Refuses to touch the K66 flash configuration field 0x400-0x40F.
 """
-import sys
+import os, sys
 
 FLASH_CONFIG = range(0x400, 0x410)
 
@@ -44,7 +44,7 @@ def main():
     lines = raw.split(b"\n")  # keep '\r' inside each line
 
     # pass 1: collect existing data addresses of the target image (for overlap check)
-    existing, cur_image, base, last_base = set(), 1, 0, None
+    existing, cur_image, base, last_base, addr_typ = set(), 1, 0, None, 4
     for line in lines:
         body = line.rstrip(b"\r")
         if not body.startswith(b":"):
@@ -53,8 +53,10 @@ def main():
         n, addr, typ = rec[0], (rec[1] << 8) | rec[2], rec[3]
         if typ == 2:
             base = int.from_bytes(rec[4:6], "big") << 4
+            if cur_image == image: addr_typ = 2
         elif typ == 4:
             base = int.from_bytes(rec[4:6], "big") << 16
+            if cur_image == image: addr_typ = 4
         elif typ == 0 and cur_image == image:
             existing.update(range(base + addr, base + addr + n))
             last_base = base
@@ -66,14 +68,28 @@ def main():
             sys.exit("REFUSED: append touches flash configuration 0x400-0x40F")
         if existing & set(range(a, a + len(blob))):
             sys.exit(f"REFUSED: append at {a:#x} overlaps existing data")
-        if not (last_base <= a and a + len(blob) <= last_base + 0x10000):
+        if not (last_base <= a < last_base + 0x10000):
             sys.exit(f"REFUSED: append at {a:#x} outside last segment {last_base:#x}")
-        for o in range(0, len(blob), 16):
-            chunk = blob[o:o + 16]
-            off = a + o - last_base
+        # 10.11.2026: Bootloader schreibt auch ueber 0xC0000 (Flash-Dump: 66 484 Byte bis 0xC0A50 bytegleich). Grenze = 1 MB Flash.
+        if image == 1 and a + len(blob) > 0x100000:
+            sys.exit(f"REFUSED: append ends at {a + len(blob):#x}, beyond 1 MB program flash")
+        # 045: ueber die 64-KB-Grenze hinaus wie das Original selbst: Typ-04-Record (Extended Linear Address), Daten lueckenlos
+        seg, o = last_base, 0
+        while o < len(blob):
+            pos = a + o
+            if pos >= seg + 0x10000:
+                seg = pos & ~0xFFFF       # gleicher Record-Typ wie im Image: Rev A Typ 02 (Segment << 4), Rev B Typ 04
+                v = seg >> 4 if addr_typ == 2 else seg >> 16
+                ela = bytearray([2, 0, 0, addr_typ, v >> 8 & 0xFF, v & 0xFF])
+                ela.append((-sum(ela)) & 0xFF)
+                append_lines.append(b":" + ela.hex().upper().encode() + b"\r")
+            n = min(16, len(blob) - o, seg + 0x10000 - pos)
+            chunk = blob[o:o + n]
+            off = pos - seg
             rec = bytearray([len(chunk), off >> 8, off & 0xFF, 0]) + chunk
             rec.append((-sum(rec)) & 0xFF)
             append_lines.append(b":" + rec.hex().upper().encode() + b"\r")
+            o += n
         print(f"append {len(blob)} bytes at {a:#x} ({len(append_lines)} records total)")
 
     out = []

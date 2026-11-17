@@ -1,22 +1,20 @@
 #!/usr/bin/env python3
-"""Cold start: SRAM is undefined after power-on. mod_init must run cleanly with any RAM content."""
+"""Patch 043: Kaltstart: SRAM ist nach dem Einschalten nicht definiert. sl_init muss mit beliebigem RAM-Inhalt sauber laufen."""
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, HERE)
-from emu_nis import Emu, load_ppf
-LR = 0x1FFF9EB0
-LR_MAGIC = 0x11BEC023
-def syms():
-    return {l.split()[2]: int(l.split()[0], 16) for l in os.popen("arm-none-eabi-nm " + os.path.join(HERE, "fx.elf")) if len(l.split()) == 3}
+from emu_slicer import syms, load_ppf
+from emu_nis import Emu
 def run(img, nm, fill, lo=0x1FFF8000, hi=0x20000000):
     e = Emu(img)
     e.uc.mem_write(lo, bytes([fill]) * (hi - lo))
     try:
-        e.call(nm['mod_init'] | 1, limit=20000000)
-        e.call(nm['lr_poll'] | 1, limit=2000000)
+        e.call(nm['sl_init'] | 1, limit=20000000)
     except Exception as ex:
         return False, str(ex)[:90]
-    magic = e.r32(LR)
-    return magic == LR_MAGIC, f'mod_init + lr_poll, LR magic {magic:#x}'
+    g = e.call(nm['gr_state'] | 1, 1); ok = 0x1FFF0000 <= g < 0x20040000
+    c = e.call(nm['gr_cfg'] | 1, 1)
+    pl = e.r32(0x1FFF9A04)
+    return ok and e.uc.mem_read(c, 1)[0] == 4 and pl == 0, f'gr_state {g:#x}, Sequencer-Merker {pl}'
 def main():
     nm = syms(); img = load_ppf(sys.argv[1]); bad = 0
     for fill in (0x00, 0xFF, 0xA5, 0x5A, 0x20, 0x1F):

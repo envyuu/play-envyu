@@ -1,0 +1,69 @@
+/* play-envyu 0.2 video: additions to video.css */
+body.short #fit { width: 1080px; height: 1920px; }
+.dev { position: relative; border: 12px solid #2a2c31; border-radius: 20px; background: #000; overflow: hidden; box-shadow: 0 30px 80px #0008; }
+.dev canvas { display: block; width: 100%; height: auto; image-rendering: auto; }
+.dev.big { width: 1000px; }
+.dev.mid { width: 760px; }
+.dev.small { width: 600px; }
+
+/* pads as on the device: rounded squares, dim when off, glow when lit */
+.pads { display: grid; gap: 12px; }
+.pads i { display: block; aspect-ratio: 1; border-radius: 12%; background: var(--off, #26282e); transition: background .08s, box-shadow .08s, transform .08s; position: relative; }
+.pads i.on { background: var(--on, #ffff61); box-shadow: 0 0 22px var(--on, #ffff61); }
+.pads i.sel { outline: 4px solid #fff; outline-offset: 3px; }
+.pads i.held { transform: scale(.9); box-shadow: 0 0 34px var(--on, #ffff61); background: var(--on, #ffff61); }
+.pads i b { position: absolute; inset: 0; display: grid; place-items: center; font: 650 22px var(--mono); color: #000a; }
+.padblock { width: 330px; }
+.padblock .pads { grid-template-columns: repeat(4, 1fr); }
+.padcap { font: 600 20px var(--mono); color: #9b9ea8; text-align: center; margin-top: 14px; }
+
+.steps16 { display: grid; grid-template-columns: repeat(16, 1fr); gap: 10px; width: 100%; }
+.steps16 i { display: grid; place-items: center; aspect-ratio: 1; border-radius: 12%; background: #3b2f12; color: #ffd76a; font: 650 26px var(--mono); font-style: normal; transition: background .08s, box-shadow .08s, transform .08s; }
+.steps16 i.now { background: #ffd23a; color: #1f1503; box-shadow: 0 0 26px #ffd23a; }
+.steps16 i.held { transform: scale(.88); outline: 5px solid #fff; outline-offset: 3px; }
+.steps16 i.chg { animation: chg .6s; }
+@keyframes chg { 0% { background: #fff; color: #000; } }
+
+.stack { display: grid; gap: 34px; align-content: center; justify-items: start; }
+.devrow { display: flex; gap: 46px; align-items: center; }
+.cold { place-content: center; justify-items: center; gap: 40px; }
+.cold .cap { font: 650 64px var(--sans); letter-spacing: -.02em; text-align: center; min-height: 80px; transition: opacity .3s; }
+
+.knobline { display: flex; gap: 22px; align-items: center; font: 600 28px var(--sans); color: #c9cbd3; }
+.knob2 { width: 104px; height: 104px; border-radius: 50%; background: #2a2c33; border: 4px solid #444855; position: relative; flex: none; }
+.knob2 i { position: absolute; left: 50%; top: 8px; width: 6px; height: 30px; margin-left: -3px; border-radius: 3px; background: #fff; transform-origin: 50% 44px; transform: rotate(var(--turn, 0deg)); transition: transform .12s; }
+.knob2.hot { border-color: #ff5533; box-shadow: 0 0 24px #ff553388; }
+.hand { font: 600 26px var(--mono); color: #ffb238; min-height: 34px; }
+
+.wordmark { display: grid; grid-template-columns: repeat(20, 1fr); gap: 10px; width: 1100px; }
+.wordmark i { aspect-ratio: 1; border-radius: 14%; background: #1a1a1a; transition: background .35s; }
+.title2 h1 { font-size: 120px; margin: 40px 0 10px; }
+.bullets { list-style: none; margin: 30px 0 0; padding: 0; display: grid; gap: 26px; width: 1400px; }
+.bullets li { font-size: 46px; font-weight: 600; letter-spacing: -.015em; opacity: .14; transition: opacity .35s, transform .35s; transform: translateX(-16px); }
+.bullets li.on { opacity: 1; transform: none; }
+.bullets li small { display: block; font: 400 28px var(--sans); color: #a7aab4; letter-spacing: 0; margin-top: 4px; }
+.typelist { display: flex; flex-wrap: wrap; gap: 14px; width: 1100px; }
+.typelist span { font: 600 30px var(--sans); padding: 14px 24px; border-radius: 14px; background: #20232b; border: 2px solid #343844; opacity: .25; transition: all .35s; }
+.typelist span.on { opacity: 1; border-color: #ff7a6b; color: #fff; }
+.teaser { font: 600 40px var(--sans); color: #5fd0c5; margin-top: 50px; opacity: 0; transition: opacity .5s; }
+.teaser.on { opacity: 1; }
+
+/* short: 1080 x 1920 */
+body.short .slide { padding: 120px 70px 160px; }
+body.short .cold .cap { font-size: 74px; }
+body.short .dev.big { width: 940px; }
+body.short .padblock { width: 520px; }
+body.short #pips { left: 70px; }
+body.short #stamp { left: 70px; right: auto; bottom: 80px; }
+
+/* stacked slides (display + pads + step row): keep everything inside 1080 px */
+.stack h1 { font-size: 64px; margin-bottom: 14px; }
+.stack .say { font-size: 30px; }
+.stack .padblock { width: 200px; }
+.stack .pads { gap: 8px; }
+.stack .padcap { display: none; }
+.stack .dev.small { width: 470px; }
+.stack .devrow { gap: 36px; }
+.stack .steps16 i { font-size: 22px; }
+.stack { gap: 26px; }
+

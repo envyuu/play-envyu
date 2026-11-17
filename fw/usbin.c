@@ -2,7 +2,7 @@
  * ENTWURF – nur am PC getestet.
  *
  * Idee (Details: Vault-Notiz Firmware/USB_Audio.md, Abschnitt Phase 2):
- *  - Menue "Audio Out" = "Stereo + In" (usbmenu.c) meldet das Play mit einem eigenen Deskriptor an (UI_DESC_IN, 323 B):
+ *  - Menue "Audio Out" = "Stereo + In" (usbmenu.c) meldet das Play mit einem eigenen Deskriptor an (UI_DESC_IN, 331 B):
  *    Stereo-Ausgang IF4 (EP 0x86) wie 012 und neu IF5 = Wiedergabe: EP 0x06 OUT isochron asynchron (max. 49 Frames/ms),
  *    Rueckmelde-Endpunkt EP 0x87 IN (3 Byte, Format 10.14 Frames/ms, alle 32 ms abgefragt). Multitrack entfaellt in
  *    dieser Variante (USB-Bandbreite), deshalb sind IF5 und EP7 frei. Vorbild: Teensy usb_audio (gleicher USB-Baustein).
@@ -27,6 +27,8 @@
 
 void mt_ep_token(uint32_t stat);              /* multitrack.c */
 void rec_capture(const int16_t *l, const int16_t *r) __attribute__((weak));   /* usbrec.c (Patch 024) */
+void rec_silence(void) __attribute__((weak));                                 /* usbrec.c (045): Block ohne Eingang */
+#define REC_SILENCE() do { if (rec_silence) rec_silence(); } while (0)
 
 #define UI_IF        5u
 #define UI_EPADDR    0x06u
@@ -120,7 +122,7 @@ typedef void (*incb_t)(int32_t *out, uint32_t ctx);
 #define BDT_OWN 0x80u
 
 /* ------------------------------------------------------------------ Konfigurationsdeskriptor "Stereo + In" */
-#define UI_DESC_LEN 323u
+#define UI_DESC_LEN 331u
 const uint8_t UI_DESC_IN[UI_DESC_LEN] = {
     0x09, 0x02, UI_DESC_LEN & 0xFF, UI_DESC_LEN >> 8, 0x06, 0x01, 0x00, 0xC0, 0x32,   /* 6 Interfaces */
     /* ---- bis "Ende Original" byte-identisch mit 0xAED71..0xAEDFC (wie ua_cfg_desc) ---- */
@@ -145,6 +147,7 @@ const uint8_t UI_DESC_IN[UI_DESC_LEN] = {
     0x09, 0x05, 0x84, 0x02, 0x40, 0x00, 0x00, 0x00, 0x00,
     0x05, 0x25, 0x01, 0x01, 0x03,
     /* ---- Ende Original ---- */
+    0x08, 0x0B, 0x03, 0x03, 0x01, 0x01, 0x00, 0x00,             /* 046: IAD Audio IF3..5 (Windows gruppiert sonst nicht, wie Teensy MIDI_AUDIO_SERIAL) */
     /* IF3 Audio Control */
     0x09, 0x04, 0x03, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00,
     0x0A, 0x24, 0x01, 0x00, 0x01, 0x34, 0x00, 0x02, 0x04, UI_IF,          /* AC-Header, wTotalLength 52, AS-IF {4, 5} */
@@ -174,6 +177,11 @@ _Static_assert(sizeof(UI_DESC_IN) == UI_DESC_LEN, "Deskriptorlaenge");
 static int16_t sat16(int32_t v) { return v > 32767 ? 32767 : v < -32768 ? -32768 : (int16_t)v; }
 
 /* ------------------------------------------------------------------ Initialisierung / Steuerung */
+/* 045: Send-Anteil des Eingangs (which 0 = Delay, 1 = Reverb), Q16; aus usbmenu.c (Seite "Audio In") */
+void ui_set_send(uint32_t which, int32_t q16) {
+    if (which < 2u && UI->magic == UI_MAGIC) UI->send[which] = q16 < 0 ? 0 : q16 > 65536 ? 65536 : q16;
+}
+
 void ui_init(void) {
     volatile uint32_t *z = (volatile uint32_t *)(void *)UI;
     for (uint32_t i = 0; i < sizeof(ui_t) / 4u; i++) z[i] = 0;
@@ -302,14 +310,14 @@ void ui_pre(void) {
     volatile ui_t *u = UI;
     if (u->magic != UI_MAGIC) return;
     u->in_valid = 0;
-    if (u->state == ST_OFF) return;
+    if (u->state == ST_OFF) { REC_SILENCE(); return; }      /* 045: Stream steht → Stille fuer die Aufnahme */
     uint32_t tail = u->tail, avail = u->head - tail;
-    if (avail > RING_FRAMES) { u->tail = u->head; return; }  /* inkonsistent → leeren */
+    if (avail > RING_FRAMES) { u->tail = u->head; REC_SILENCE(); return; }  /* inkonsistent → leeren */
     if (u->state == ST_PREFILL) {
-        if (avail < START_FILL) return;
+        if (avail < START_FILL) { REC_SILENCE(); return; }
         u->state = ST_RUN;
     }
-    if (avail < BLOCK) { u->underruns++; u->state = ST_PREFILL; return; }
+    if (avail < BLOCK) { u->underruns++; u->state = ST_PREFILL; REC_SILENCE(); return; }
     int16_t *l = IN_L, *r = IN_R;
     int32_t pk = u->peak;
     for (uint32_t k = 0; k < BLOCK; k++) {

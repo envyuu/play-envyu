@@ -12,7 +12,7 @@
   play_upload.py rec [start|stop]            (USB-Eingang aufnehmen, Patch 024)
   play_upload.py update LOKAL.ppf             (pruefen → hochladen → CRC → fragt → flashen)
 
-Optionen: --port /dev/ttyACM0, --yes (nicht nachfragen)
+Optionen: --port PORT (Standard: automatisch, Linux /dev/ttyACM*, macOS /dev/cu.usbmodem*), --yes (nicht nachfragen)
 Hinweis: Niemals 134 Baud verwenden – das versetzt den Teensy-Kern in den Programmiermodus.
 """
 import argparse, os, sys, time, zlib
@@ -21,6 +21,22 @@ import serial
 PORT = "/dev/serial/by-id/usb-Polyend_Play_4294967295-if00"
 BAUD = 115200          # bei USB-CDC ohne Bedeutung, aber NICHT 134
 ORIGINAL = "PolyendPlay_v1.6.0.ppf"
+
+
+def find_port():
+    """Port des Play suchen: USB-Kennung 16d0:0ea0 bzw. Name "Polyend", sonst bekannte Pfade (Linux und macOS)."""
+    import glob
+    try:
+        from serial.tools import list_ports
+        for p in list_ports.comports():
+            if (p.vid, p.pid) == (0x16D0, 0x0EA0) or "polyend" in f"{p.manufacturer} {p.product}".lower():
+                return p.device
+    except Exception:
+        pass
+    for c in [PORT] + sorted(glob.glob("/dev/ttyACM*")) + sorted(glob.glob("/dev/cu.usbmodem*")):
+        if os.path.exists(c):
+            return c
+    sys.exit("Kein Polyend Play gefunden – USB-Kabel pruefen oder --port angeben.")
 
 
 def q(path):
@@ -149,13 +165,13 @@ def ask(q, yes):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--port", default=PORT if os.path.exists(PORT) else "/dev/ttyACM0")
+    ap.add_argument("--port", default=None, help="Standard: automatisch suchen")
     ap.add_argument("--yes", action="store_true")
     ap.add_argument("--experimentell", action="store_true", help="(ohne Wirkung, frueher fuer FLASH noetig)")
     ap.add_argument("cmd", choices=["ping", "ls", "put", "get", "cfg", "rec", "crc", "del", "flash", "update"])
     ap.add_argument("args", nargs="*")
     a = ap.parse_args()
-    p = Play(a.port)
+    p = Play(a.port or find_port())
     print(p.ping())
 
     if a.cmd == "ls":

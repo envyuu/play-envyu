@@ -30,7 +30,7 @@ def record(addr, data):
 
 def apply(raw, patches, payload_addr, payload):
     """Patch image 1 in place and append the payload. All other bytes stay identical."""
-    lines, out, image, base, last_base, applied = raw.split(b"\n"), [], 1, 0, None, set()
+    lines, out, image, base, last_base, applied, addr_typ = raw.split(b"\n"), [], 1, 0, None, set(), 4
 
     for line in lines:
         body = line.rstrip(b"\r")
@@ -39,19 +39,33 @@ def apply(raw, patches, payload_addr, payload):
         rec = bytes.fromhex(body[1:].decode())
         if rec[3] == 2:
             base = int.from_bytes(rec[4:6], "big") << 4
+            addr_typ = 2
         elif rec[3] == 4:
             base = int.from_bytes(rec[4:6], "big") << 16
+            addr_typ = 4
         elif rec[3] == 0 and image == 1:
             last_base = base
         elif rec[3] == 1:
             break
 
-    if not last_base <= payload_addr < payload_addr + len(payload) <= last_base + 0x10000:
-        fail("payload does not fit the last firmware segment")
-    appended = [
-        record(payload_addr + o - last_base, payload[o:o + 16]) + b"\r"
-        for o in range(0, len(payload), 16)
-    ]
+    if not last_base <= payload_addr < last_base + 0x10000:
+        fail("payload does not start in the last firmware segment")
+    if payload_addr + len(payload) > 0x100000:
+        fail("payload ends beyond the 1 MB program flash")
+    # Data stays gapless. When it crosses a 64 KB boundary, a segment record of the same type as the stock
+    # image (Rev A: type 02) starts the next segment, as in the stock file itself.
+    appended, seg, o = [], last_base, 0
+    while o < len(payload):
+        pos = payload_addr + o
+        if pos >= seg + 0x10000:
+            seg = pos & ~0xFFFF
+            v = seg >> 4 if addr_typ == 2 else seg >> 16
+            ela = bytearray([2, 0, 0, addr_typ, v >> 8 & 0xFF, v & 0xFF])
+            ela.append(-sum(ela) & 0xFF)
+            appended.append(b":" + ela.hex().upper().encode() + b"\r")
+        n = min(16, len(payload) - o, seg + 0x10000 - pos)
+        appended.append(record(pos - seg, payload[o:o + n]) + b"\r")
+        o += n
 
     image, base = 1, 0
     for line in lines:

@@ -22,7 +22,7 @@ static int usb_init_called;
 void host_usb_init(void) { usb_init_called++; }
 
 /* aus usbaudio.c */
-#define CFG_LEN 357
+#define CFG_LEN 365
 extern const uint8_t ua_cfg_desc[CFG_LEN];
 void ua_init(void);
 void ua_push(const int16_t *l, const int16_t *r, uint32_t n);

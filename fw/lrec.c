@@ -73,7 +73,7 @@ uint32_t lr_step(volatile lr_t *s, uint32_t btn, uint32_t ev, uint32_t shift, ui
 
 /* "USB REC m:ss" (+ " !" bei Aussetzern), ds = Zehntelsekunden */
 void lr_text(volatile char *b, uint32_t st, uint32_t ds, uint32_t drops) {
-    static const char H[] = "USB REC ";
+    static const char H[] = "REC ";   /* 045: kurz, rechts daneben der Pegel */
     uint32_t k = 0;
     for (const char *p = H; *p; p++) b[k++] = *p;
     if (st == 1u) { const char *p = "..."; while (*p) b[k++] = *p++; b[k] = 0; return; }
@@ -87,6 +87,13 @@ void lr_text(volatile char *b, uint32_t st, uint32_t ds, uint32_t drops) {
     b[k] = 0;
 }
 
+/* 045: Spitze (0…32768) → Balken 0…10, Schwellen -48, -42, -36, -30, -24, -18, -12, -6, -3, -0,5 dB */
+uint32_t lr_bars(uint32_t pk) {
+    static const uint16_t T[10] = { 130, 260, 519, 1036, 2068, 4125, 8231, 16423, 23198, 30934 };
+    uint32_t n = 0;
+    while (n < 10u && pk >= T[n]) n++;
+    return n;
+}
 void lr_reset(void) {
     volatile lr_t *s = LR;
     volatile uint32_t *z = (volatile uint32_t *)(void *)s;
@@ -100,7 +107,8 @@ static int enabled(void) { return LR->magic == LR_MAGIC && rec_request != 0; }
 
 /* ersetzt vt[1] des UI-Objekts (vtable 0xA0158, Wort 0xA015C) */
 __attribute__((used, section(".text.entry_lrbtn")))
-void sv_set_ui(uint32_t ui) __attribute__((weak));   /* slview.c (026): Shift fuer die Slice-Seiten */
+void sv_set_ui(uint32_t ui) __attribute__((weak));
+void sv_shift_changed(void) __attribute__((weak));   /* slview.c (045) */   /* slview.c (026): Shift fuer die Slice-Seiten */
 uint32_t lr_button_hook(void *ui, uint32_t btn, uint32_t ev) {
     volatile lr_t *s = LR;
     if (sv_set_ui) sv_set_ui((uint32_t)(uintptr_t)ui);
@@ -112,12 +120,16 @@ uint32_t lr_button_hook(void *ui, uint32_t btn, uint32_t ev) {
         s->req_res = rec_request(st == 0u ? 1 : 0);
         s->n_req++;
 #ifndef HOST_TEST
-        if (!s->req_res && st == 0u) TOAST("USB REC: Audio Out = Stereo + In");
+        if (!s->req_res && st == 0u) s->t_fail = MILLIS() | 1u;   /* 12.11.: rote Pille statt langem Toast */
 #endif
         return 1;
     }
     if (r & LR_DEFERRED) { ORIG_BUTTON(ui, LR_BTN, 0u); return ORIG_BUTTON(ui, LR_BTN, 1u); }
-    if (r & LR_FWD) return ORIG_BUTTON(ui, btn, ev);
+    if (r & LR_FWD) {
+        uint32_t res = ORIG_BUTTON(ui, btn, ev);
+        if (btn == 10u && ev != 2u && sv_shift_changed) sv_shift_changed();   /* 045: Seiten-Pads bei Shift ein/aus */
+        return res;
+    }
     return 1;
 }
 
@@ -126,11 +138,27 @@ static uint32_t mgr_call(uint32_t mgr, uint32_t off, uint32_t a) {
     return ((uint32_t (*)(uint32_t, uint32_t))vt[off / 4u])(mgr, a);
 }
 
+void tw_cells(uint32_t x, uint32_t y, uint32_t font, const char *s, uint32_t cw);   /* tapw.c (045) */
+void tw_cover(uint32_t who, int on) __attribute__((weak));
 static uint32_t lr_draw(void *self) {
     (void)self;
     volatile lr_t *s = LR;
     const uint32_t x0 = 160u - LR_PILL_W / 2u, x1 = 160u + LR_PILL_W / 2u, y0 = 3u, y1 = 21u;
     uint32_t f0 = ((const uint16_t *)0x0009A924u)[4];       /* Font 0 (16×22), Handle aus der Tabelle */
+    if (s->txt[0] == 0) {                                   /* 12.11.: Start abgelehnt – rote Pille mit Kreuz */
+        const uint32_t a0 = 160u - LR_FAIL_W / 2u, a1 = 160u + LR_FAIL_W / 2u, cy = (y0 + y1) / 2u;
+        CO_BEGIN(); CMD_DLSTART();
+        DL_COLOR(0xD01F25u); DL_LINEW(16u * 6u); DL_BEGIN(9u);
+        DL_V2F(a0 + 6u, y0 + 6u); DL_V2F(a1 - 6u, y1 - 6u);
+        DL_END();
+        DL_COLOR(0xFFFFFFu); DL_LINEW(24u); DL_BEGIN(3u);   /* LINES: Kreuz */
+        DL_V2F(a0 + 8u, cy - 4u); DL_V2F(a0 + 16u, cy + 4u);
+        DL_V2F(a0 + 16u, cy - 4u); DL_V2F(a0 + 8u, cy + 4u);
+        DL_END();
+        CMD_TEXT(a0 + 24u, cy, f0, 0x400, "Need Stereo + In");
+        CO_END();
+        return 0;
+    }
     CO_BEGIN(); CMD_DLSTART();
     DL_COLOR(0x111111u); DL_LINEW(16u * 6u); DL_BEGIN(9u);  /* RECTS, Radius 6 px */
     DL_V2F(x0 + 6u, y0 + 6u); DL_V2F(x1 - 6u, y1 - 6u);
@@ -138,7 +166,28 @@ static uint32_t lr_draw(void *self) {
     DL_COLOR(0xFF2025u); DL_POINTSZ(16u * 4u); DL_BEGIN(2u);  /* POINTS: roter Punkt */
     DL_V2F(x0 + 12u, (y0 + y1) / 2u); DL_END();
     DL_COLOR(0xFFFFFFu);
-    CMD_TEXT(x0 + 22u, (y0 + y1) / 2u, f0, 0x400, (const char *)s->txt);   /* OPT_CENTERY */
+    {   /* 045: "REC", dann die Zeit in festen Feldern (springt nicht), Rest (" OK", " !") dahinter */
+        const volatile char *t = s->txt;
+        if (t[0] == 'R' && t[1] == 'E' && t[2] == 'C' && t[3] == ' ' && t[4] >= '0' && t[4] <= '9') {
+            char tm[8], rest[8]; uint32_t i = 4, k = 0, r = 0;
+            while (t[i] && t[i] != ' ' && k < 7u) tm[k++] = t[i++];
+            tm[k] = 0;
+            while (t[i] && r < 7u) rest[r++] = t[i++];
+            rest[r] = 0;
+            CMD_TEXT(x0 + 20u, (y0 + y1) / 2u, f0, 0x400, "REC");
+            tw_cells(x0 + 58u, (y0 + y1) / 2u, f0, tm, 9u);   /* max. 6 min: "6:00" endet bei x0 + 89, Pegel ab x1 - 44 */
+            if (r) CMD_TEXT(x0 + 58u + 9u * (k - 1u) + 4u + 2u, (y0 + y1) / 2u, f0, 0x400, rest);
+        } else CMD_TEXT(x0 + 22u, (y0 + y1) / 2u, f0, 0x400, (const char *)s->txt);   /* OPT_CENTERY */
+    }
+    if (s->_r == 2u) {                                   /* 045: Pegel des Eingangs, 10 Balken rechts (-48…0 dB) */
+        DL_LINEW(16u); DL_BEGIN(9u);
+        for (uint32_t b = 0; b < 10u; b++) {
+            uint32_t bx = x1 - 44u + b * 4u;
+            DL_COLOR(b >= s->lvl ? 0x333333u : b >= 9u ? 0xFF2025u : b >= 8u ? 0xFFD64Du : 0x00CC66u);
+            DL_V2F(bx, y0 + 5u); DL_V2F(bx + 2u, y1 - 5u);
+        }
+        DL_END();
+    }
     CO_END();
     return 0;
 }
@@ -174,6 +223,8 @@ static uint32_t ensure_slot(void) {
 }
 
 /* Hauptschleife */
+uint32_t rec_level(void) __attribute__((weak));
+
 void lr_poll(void) {
     volatile lr_t *s = LR;
     if (s->magic != LR_MAGIC || !rec_status) return;
@@ -196,16 +247,28 @@ void lr_poll(void) {
             else if (ir == 3) TOAST("Rec empty: no USB audio");
             else TOAST("USB REC saved");
         }
-        else if (st == 0u && prev == 1u && err) TOAST("USB REC: Stereo + In?");
+        else if (st == 0u && prev == 1u && err == -1) s->t_fail = MILLIS() | 1u;
+        else if (st == 0u && prev == 1u && err) TOAST("USB REC error");
         s->_r = (uint8_t)st;
     }
-    uint32_t want = st != 0u;
-    uint32_t key = (st << 28) ^ (ds / 10u) ^ (dr ? 0x08000000u : 0u);
+    if (st > 3u) st = 0u;                                /* 12.11.: ungueltiger Zustand (rec_poll legt neu an) → keine Pille */
+    uint32_t fail = s->t_fail && MILLIS() - (s->t_fail & ~1u) < LR_FAIL_MS && st == 0u;   /* |1 nur als Merker: Zeit ohne Bit 0 */
+    if (!fail) s->t_fail = 0;
+    uint32_t want = st != 0u || fail;
+    if (want && s->shown && tw_cover) tw_cover(2u, 1);   /* 045: hat die Firmware den Balken wieder gezeigt? */
+    if (st == 2u && rec_level && MILLIS() - s->t_lvl >= 60u) {   /* 045: Pegel alle 60 ms */
+        s->t_lvl = MILLIS();
+        uint32_t nb = lr_bars(rec_level());
+        s->lvl = nb >= s->lvl ? nb : s->lvl - 1u;          /* schnell hoch, langsam runter */
+    }
+    if (st != 2u) s->lvl = 0;
+    uint32_t key = (st << 28) ^ (ds / 10u) ^ (dr ? 0x08000000u : 0u) ^ (s->lvl << 20) ^ (fail ? 0x04000000u : 0u);
     if (want == s->shown && (!want || key == s->key)) return;
     if (ensure_slot() >= 50u) return;
     s->key = key;
-    if (want) { lr_text(s->txt, st, ds, dr); mgr_call(MGR, 0x24u, s->slot); }
+    if (want) { if (fail) s->txt[0] = 0; else lr_text(s->txt, st, ds, dr); mgr_call(MGR, 0x24u, s->slot); }
     else mgr_call(MGR, 0x28u, s->slot);
+    if (tw_cover) tw_cover(2u, (int)want);              /* 045: Kopfzeilen-Balken weg, solange die Pille steht */
     s->shown = (uint8_t)want;
     mgr_call(MGR, 0x08u, s->slot);                      /* neu zeichnen + Bild */
     mgr_call(MGR, 0x0Cu, 0);

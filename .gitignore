@@ -17,3 +17,9 @@ __pycache__/
 
 # Audio and local test data
 *.wav
+
+# Local only
+.stfolder/
+*.dSYM/
+fw/screens/
+studio/

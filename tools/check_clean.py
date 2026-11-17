@@ -44,6 +44,8 @@ def main():
             print(f"FORBIDDEN {path}")
             bad += 1
             continue
+        if not os.path.isfile(path):
+            continue                     # tracked but deleted in the working tree
         data = open(path, "rb").read()
         if path in ("manifests/latest.json", "docs/manifest.json"):
             m = json.loads(data)

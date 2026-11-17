@@ -15,7 +15,7 @@ from emu_isr import Dev  # noqa: E402
 from check_ppf import images  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-FIL, REC, RING = 0x1FFFD630, 0x1FFFD880, 0x1FFFDE00
+FIL, REC, RING = 0x1FFFD630, 0x1FFF9A80, 0x1FFFDE00   # 12.11.: rec_t aus dem Multitrack-Sendepuffer verlegt
 UI = 0x1FFF9000
 MILLIS = 0x20000D7C
 BUF = 0x20010000

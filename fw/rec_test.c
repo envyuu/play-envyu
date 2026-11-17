@@ -11,6 +11,7 @@
 uint8_t host_rec_ram[0x2400];
 uint32_t host_ui_mode, host_millis;
 int host_stereo;
+int host_rec_wait, host_rec_pause;      /* 045: Einstellungen "Wait For Signal" / "Pause On Silence" */
 static int imports; static char imp_dir[64], imp_name[64];
 static int assigned_slot = -1;
 int host_assign(int slot) { assigned_slot = slot; return 1; }
@@ -81,7 +82,12 @@ static uint32_t check_wav(const char *path, uint32_t first, int contiguous) {
     return n;
 }
 
-static void boot(void) { fs_reset(); memset(host_rec_ram, 0xA5, sizeof host_rec_ram); rec_init(); host_ui_mode = 1; seq = 0; fail_write_after = -1; }
+static void boot(void) { fs_reset(); memset(host_rec_ram, 0xA5, sizeof host_rec_ram); rec_init(); host_ui_mode = 1; seq = 0; fail_write_after = -1; host_rec_wait = 0; host_rec_pause = 0; }
+static void quiet_block(int16_t amp) {   /* 045: leiser Block (|x| <= amp), Frame-Zaehler laeuft weiter */
+    for (int k = 0; k < 128; k++) { L[k] = (int16_t)((k & 1) ? amp : -amp); R[k] = L[k]; seq++; }
+    rec_capture(L, R);
+}
+static int16_t smp(const char *path, uint32_t k) { int i = find(path); const uint8_t *d = fs[i].d; return (int16_t)(d[44 + 2 * k] | d[45 + 2 * k] << 8); }
 
 int main(int argc, char **argv) {
     if (argc > 1) rng = (uint32_t)strtoul(argv[1], 0, 0);
@@ -192,6 +198,93 @@ int main(int argc, char **argv) {
         CHECK(REC->heap == 0 && REC->cap == CAP, "Heap-Ring freigegeben"); }
     host_stereo = 0;
 
+    printf("== 7. 045: Wait For Signal / Pause On Silence\n");
+    {   const char *F1 = "Samples/Live Recordings/Rec_001.wav";
+        boot(); host_rec_wait = 1; host_rec_pause = 0;
+        rec_request(1); rec_poll();
+        CHECK(RX->waiting == 1 && RX->w_on == 1 && RX->p_on == 0, "Wait: wartet nach dem Start");
+        for (int b = 0; b < 40; b++) { if (b & 1) rec_silence(); else quiet_block(100); rec_poll(); }
+        rec_status(&st, &ds, &dr, &num, &err);
+        CHECK(ds == 0 && REC->head - REC->tail <= PRE && RX->waiting, "Wait: ohne Signal laeuft die Zeit nicht (%u), nur Vorlauf im Ring", ds);
+        first = seq;
+        for (int b = 0; b < 200; b++) { block(); rec_poll(); }
+        CHECK(RX->waiting == 0, "Wait: Signal startet die Aufnahme");
+        rec_request(0); rec_poll();
+        n = check_wav(F1, 0, 0);
+        CHECK(n == PRE + 200u * 128u, "Wait: Vorlauf %u + Signal = %u Samples", PRE, n);
+        { int bad = 0; for (uint32_t k = 0; k < 200u * 128u; k++) if (smp(F1, PRE + k) != expect_at(first + k)) bad++;
+          int q = 0; for (uint32_t k = 0; k < PRE; k++) { int16_t v = smp(F1, k); if (v > 100 || v < -100) q++; }
+          CHECK(bad == 0 && q == 0, "Wait: Vorlauf leise, danach lueckenlos (%d/%d)", bad, q); }
+
+        boot(); host_rec_wait = 1;
+        rec_request(1); rec_poll();
+        for (int b = 0; b < 100; b++) { rec_silence(); rec_poll(); }
+        rec_request(0); rec_poll();
+        CHECK(check_wav(F1, 0, 0) == 0 && REC->imp_res == 3, "Wait: Stopp ohne Signal → leere Datei, nicht geladen");
+
+        boot(); host_rec_wait = 0; host_rec_pause = 1;
+        rec_request(1); rec_poll();
+        uint32_t f1 = seq;
+        for (int b = 0; b < 100; b++) { block(); rec_poll(); }
+        for (int b = 0; b < 1000; b++) { if (b % 3) rec_silence(); else quiet_block(50); rec_poll(); }
+        CHECK(RX->paused == 1 && RX->pauses == 1, "Pause: nach 1 s Stille pausiert");
+        rec_status(&st, &ds, &dr, &num, &err);
+        uint32_t hold_blocks = (HOLD + 127u) / 128u;
+        CHECK(ds == (100u + hold_blocks) * 128u * 10u / 44100u || ds == ((100u + hold_blocks) * 128u + PRE) * 10u / 44100u, "Pause: Zeit steht (%u)", ds);
+        uint32_t f2 = seq;
+        for (int b = 0; b < 100; b++) { block(); rec_poll(); }
+        CHECK(RX->paused == 0, "Pause: Signal setzt fort");
+        rec_request(0); rec_poll();
+        n = check_wav(F1, 0, 0);
+        uint32_t want = 100u * 128u + hold_blocks * 128u + PRE + 100u * 128u;
+        CHECK(n == want, "Pause: Laenge %u (erwartet %u = Teil 1 + 1 s Ausklang + Vorlauf + Teil 2)", n, want);
+        { int bad = 0;
+          for (uint32_t k = 0; k < 100u * 128u; k++) if (smp(F1, k) != expect_at(f1 + k)) bad++;
+          for (uint32_t k = 0; k < 100u * 128u; k++) if (smp(F1, n - 100u * 128u + k) != expect_at(f2 + k)) bad++;
+          CHECK(bad == 0, "Pause: beide Teile lueckenlos (%d)", bad); }
+
+        boot(); host_rec_wait = 0; host_rec_pause = 0;
+        rec_request(1); rec_poll();
+        for (int b = 0; b < 10; b++) { block(); rec_poll(); }
+        for (int b = 0; b < 400; b++) { rec_silence(); rec_poll(); }
+        for (int b = 0; b < 10; b++) { block(); rec_poll(); }
+        rec_request(0); rec_poll();
+        CHECK(check_wav(F1, 0, 0) == 420u * 128u, "Off/Off: Stream-Pause wird als Stille aufgenommen");
+
+        boot(); host_rec_wait = 1; host_rec_pause = 1; host_stereo = 1;
+        rec_request(1); rec_poll();
+        for (int b = 0; b < 30; b++) { rec_silence(); rec_poll(); }
+        for (int b = 0; b < 50; b++) { block(); rec_poll(); }
+        for (int b = 0; b < 700; b++) { rec_silence(); rec_poll(); }
+        for (int b = 0; b < 50; b++) { block(); rec_poll(); }
+        rec_request(0); rec_poll();
+        {   int i = find(F1); uint32_t nn = (fs[i].len - 44u) / 4u;
+            CHECK(nn == PRE + 50u * 128u + hold_blocks * 128u + PRE + 50u * 128u && REC->drops == 0, "Stereo Wait+Pause: %u Frames", nn); }
+        host_stereo = 0;
+    }
+
+    printf("== 5d. Zustand ueberschrieben (12.11.: \"Stereo + Multi\" hat rec_t zerstoert)\n");
+    boot();
+    memset((void *)REC, 0x5A, sizeof(rec_t));                    /* wie der Multitrack-Sendepuffer */
+    CHECK(rec_request(1) == 0, "zerstoert: Start abgelehnt (Fehlerbild vorher: dauerhaft)");
+    rec_poll();
+    rec_status(&st, &ds, &dr, &num, &err);
+    CHECK(REC->magic == 0x52454324u && st == R_IDLE, "rec_poll legt neu an, Zustand ruhig (st %u)", st);
+    CHECK(rec_request(1) == 1, "danach Start wieder angenommen");
+    rec_poll(); for (int b = 0; b < 20; b++) block();
+    rec_request(0); rec_poll();
+    CHECK(REC->state == R_IDLE && REC->files == 1, "Aufnahme nach Selbstheilung fertig");
+    REC->state = 7u; rec_poll();
+    CHECK(REC->state == R_IDLE && REC->magic == 0x52454324u, "unbekannter Zustand 7 → neu angelegt");
+
+    printf("== 5e. Variantenwechsel waehrend der Aufnahme: in EINEM rec_poll abgeschlossen\n");
+    boot();
+    rec_request(1); rec_poll(); for (int b = 0; b < 40; b++) { block(); if (b % 4 == 3) rec_poll(); }
+    host_ui_mode = 0;
+    rec_poll();
+    CHECK(REC->state == R_IDLE && REC->files == 1 && REC->err == 0, "Datei sofort geschlossen (FIL frei fuer den Multitrack-Puffer)");
+    host_ui_mode = 1;
+
     printf("== 6. Zufallstest\n");
     boot();
     long inv = 0;
@@ -202,10 +295,14 @@ int main(int argc, char **argv) {
         else if (r < 5) host_ui_mode = rnd() & 1 ? 1 : (rnd() & 1);
         else if (r < 6) { fs_reset(); }
         else if (r < 8) { volatile int32_t *m = rec_menu_value(); *m = (int32_t)(rnd() & 1); }
-        else if (r < 9) host_stereo = (int)(rnd() & 1);
+        else if (r < 9) { host_stereo = (int)(rnd() & 1); host_rec_wait = (int)(rnd() & 1); host_rec_pause = (int)(rnd() & 1); }
+        else if (r < 300) rec_silence();
+        else if (r < 350) quiet_block((int16_t)(rnd() % 200));
         else if (r < 600) block();
         else rec_poll();
         if (REC->state == R_REC && REC->head - REC->tail > REC->cap) inv++;
+        if (REC->state == R_REC && (RX->waiting || RX->paused) && REC->head - REC->tail > PRE * REC->ch) inv++;   /* 045 */
+        if (REC->tail < RX->skip && REC->state == R_REC) inv++;
         if (REC->state > R_STOP) inv += 1000;
     }
     rec_request(0); rec_poll(); rec_poll();

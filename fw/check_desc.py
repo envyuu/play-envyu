@@ -75,6 +75,22 @@ def main():
     for b in iad:
         first, cnt = b[2], b[3]
         if first + cnt > len(nums) or cnt < 1: err(f"IAD {first}+{cnt} ausserhalb")
+    # 046: Windows (usbccgp) gruppiert nach IADs, sobald es eines gibt; die Audio-Sonderregel ohne IAD gilt dann nicht.
+    # Jede Audio-Funktion (AC + ihre AS-Interfaces) braucht dann ein eigenes IAD direkt vor dem AC-Interface.
+    if iad:
+        for (n, alt), v in ifs.items():
+            if alt or v["d"][5:7] != bytes([1, 1]): continue
+            hdr = [b for _, b in v["cs"] if len(b) >= 8 and b[2] == 1]
+            coll = list(hdr[0][8:8 + hdr[0][7]]) if hdr else []
+            want = 1 + len(coll)
+            m = [b for b in iad if b[2] == n]
+            if not m: err(f"Audio-Funktion IF{n}..{n + len(coll)} ohne IAD, obwohl das Geraet IADs nutzt (Windows gruppiert sie dann nicht)")
+            elif m[0][3] != want or m[0][4:6] != bytes([1, 1]): err(f"IAD Audio IF{n}: Anzahl {m[0][3]} (soll {want}) / Klasse {m[0][4]}/{m[0][5]} (soll 1/1)")
+            elif sorted(coll) != list(range(n + 1, n + want)): err(f"IAD Audio IF{n}: Sammlung {coll} nicht lueckenlos hinter IF{n}")
+            else:
+                prev = [pp for pp, t, _ in ds if t == 0x0B and pp + 8 == v["off"]]
+                if not prev: err(f"IAD Audio IF{n} steht nicht direkt vor dem AC-Interface")
+                else: ok(f"IAD Audio: IF{n}..{n + want - 1}, Klasse 1/1 (Windows-Gruppierung)")
     # Endpunktadressen: innerhalb einer Konfiguration eindeutig ueber verschiedene Interfaces
     owner, periodic = {}, {}
     for (n, alt), v in ifs.items():

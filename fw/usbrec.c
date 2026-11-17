@@ -10,7 +10,9 @@
  *  - Nur in der Variante "Stereo + In": Der Ring liegt im Multitrack-Ring (0x1FFFDE00), der dort unbenutzt ist.
  *    Wechselt die Variante, wird die Aufnahme beendet.
  *
- * RAM: FIL 0x1FFFD630 (0x250) · rec_t 0x1FFFD880 (0x80) · Ring 0x1FFFDE00 (8 KB) – alles im Multitrack-Bereich.
+ * RAM: FIL 0x1FFFD630 (0x250) · Ring 0x1FFFDE00 (8 KB) – im Multitrack-Bereich, nur waehrend der Aufnahme benutzt.
+ *      rec_t 0x1FFF9A80 (0x80) · rx_t 0x1FFF9A08 (0x30) – seit 12.11. AUSSERHALB: lagen vorher im Sendepuffer
+ *      MT_TX0 (0x1FFFD630–0x1FFFDA0E); "Stereo + Multi" hat sie ueberschrieben → REC-Pille blieb stehen, keine Aufnahme mehr.
  */
 #include <stdint.h>
 
@@ -29,7 +31,7 @@
 
 enum { R_IDLE = 0, R_START = 1, R_REC = 2, R_STOP = 3 };
 
-typedef struct {               /* per PEEK 1FFFD880 lesbar */
+typedef struct {               /* per PEEK 1FFF9A80 lesbar */
     uint32_t magic;            /* 00 */
     uint32_t state;            /* 04 R_* */
     uint32_t head;             /* 08 Samples vom Audio-ISR */
@@ -54,6 +56,25 @@ typedef struct {               /* per PEEK 1FFFD880 lesbar */
 } rec_t;
 _Static_assert(sizeof(rec_t) == 0x80, "rec_t");
 
+/* 045 (11.11.): Warten auf Signal / Pause bei Stille. Seit 12.11. bei 0x1FFF9A08 (frei zwischen GR_PLAYING und rs_t).
+ * Waehrend gewartet bzw. pausiert wird, schreibt der Audio-ISR weiter in den Ring, behaelt aber nur die letzten PRE
+ * Frames (Vorlauf, damit der Anfang des ersten Tons nicht fehlt) und schiebt tail selbst nach; der Schreiber in der
+ * Hauptschleife ruht dann. skip zaehlt die so verworfenen Samples: Laenge der Datei = tail − skip. */
+typedef struct {
+    uint32_t waiting;          /* 00 1 = noch kein Signal seit dem Start */
+    uint32_t pend;             /* 04 1 = Stille erkannt, Schreiber leert den Ring, neue Bloecke werden verworfen */
+    uint32_t paused;           /* 08 1 = pausiert (wie waiting) */
+    uint32_t skip;             /* 0C verworfene Samples (Ring) */
+    uint32_t quiet;            /* 10 Frames Stille in Folge */
+    uint32_t w_on, p_on;       /* 14 Einstellungen beim Start */
+    uint32_t pauses;           /* 1C Zaehler */
+} rx_t;
+_Static_assert(sizeof(rx_t) <= 0x30, "rx_t");
+#define THR       104                                   /* −50 dBFS (32768 · 10^(−50/20)) */
+#define PRE       512u                                  /* Vorlauf in Frames (11,6 ms); PRE · 2 < CHUNK: der Schreiber greift nicht ein */
+#define HOLD      44100u                                /* Pause erst nach 1 s Stille (Hall, Pausen in der Musik) */
+_Static_assert(PRE * 2u < CHUNK, "Vorlauf < CHUNK");
+
 #ifdef HOST_TEST
 extern uint8_t host_rec_ram[0x2400];          /* FIL + rec_t + Ring */
 extern uint32_t host_ui_mode;
@@ -65,6 +86,10 @@ extern int host_f_close(void *fp);
 extern int host_f_mkdir(const char *path);
 #define FIL_RAM   ((void *)host_rec_ram)
 #define REC       ((volatile rec_t *)(void *)(host_rec_ram + 0x250))
+#define RX        ((volatile rx_t *)(void *)(host_rec_ram + 0x2D0))
+extern int host_rec_wait, host_rec_pause;
+#define REC_WAIT()  (host_rec_wait)
+#define REC_PAUSE() (host_rec_pause)
 #define RING      ((int16_t *)(void *)(host_rec_ram + 0x300))
 #define UI_ON()   (host_ui_mode != 0)
 #define MILLIS()  (host_millis)
@@ -80,7 +105,13 @@ extern int host_stereo;
 #define BARRIER() __asm__ volatile("" ::: "memory")
 #else
 #define FIL_RAM   ((void *)0x1FFFD630u)
-#define REC       ((volatile rec_t *)0x1FFFD880u)
+#define REC       ((volatile rec_t *)0x1FFF9A80u)      /* 12.11.: bis 0x1FFF9AFF, davor rz_t (nis.c) bis 0x1FFF9A7F, dahinter wv_t 0x1FFF9B00 */
+#define RX        ((volatile rx_t *)0x1FFF9A08u)       /* 12.11.: bis 0x1FFF9A37, davor GRP/GR_PLAYING 0x1FFF9A00/04, dahinter rs_t 0x1FFF9A40 */
+_Static_assert(0x1FFF9A08u + sizeof(rx_t) <= 0x1FFF9A40u && 0x1FFF9A80u + sizeof(rec_t) <= 0x1FFF9B00u, "rec_t/rx_t ausserhalb des Multitrack-Bereichs 0x1FFFD400–0x1FFFFF00");
+int um_rec_wait(void) __attribute__((weak));            /* usbmenu.c (045) */
+int um_rec_pause(void) __attribute__((weak));
+#define REC_WAIT()  (!um_rec_wait || um_rec_wait())
+#define REC_PAUSE() (!um_rec_pause || um_rec_pause())
 #define RING      ((int16_t *)0x1FFFDE00u)
 #define UI_ON()   (*(volatile uint32_t *)0x1FFF9000u == UI_MAGIC && *(volatile uint32_t *)0x1FFF9004u != 0u)
 #define MILLIS()  (*(volatile uint32_t *)0x20000D7Cu)
@@ -103,6 +134,8 @@ void rec_init(void) {
     volatile uint32_t *z = (volatile uint32_t *)(void *)REC;
     for (uint32_t i = 0; i < sizeof(rec_t) / 4u; i++) z[i] = 0;
     REC->ch = 1u; REC->ring = (uint32_t)(uintptr_t)RING; REC->cap = CAP;
+    volatile uint32_t *x = (volatile uint32_t *)(void *)RX;
+    for (uint32_t i = 0; i < sizeof(rx_t) / 4u; i++) x[i] = 0;
     BARRIER();
     REC->magic = REC_MAGIC;
 }
@@ -111,9 +144,23 @@ void rec_init(void) {
 void rec_capture(const int16_t *l, const int16_t *r) {
     volatile rec_t *s = REC;
     if (s->magic != REC_MAGIC || s->state != R_REC) return;
-    uint32_t head = s->head, used = head - s->tail, cap = s->cap, mask = cap - 1u, ch = s->ch;
+    volatile rx_t *x = RX;
+    uint32_t ch = s->ch;
+    int32_t blk = 0;                                        /* 045: Spitze dieses Blocks (Signal/Stille) */
+    for (uint32_t k = 0; k < 128u; k++) {
+        int32_t a = l[k] < 0 ? -l[k] : l[k], b = r[k] < 0 ? -r[k] : r[k];
+        if (a > blk) blk = a;
+        if (b > blk) blk = b;
+    }
+    int loud = blk >= THR;
+    if (x->pend) {                                          /* Ring wird geleert: Stille verwerfen, bis tail == head */
+        if (loud) { x->pend = 0; x->quiet = 0; }            /* Signal kam zurueck, bevor geleert war: weiter aufnehmen */
+        else if (s->tail == s->head) { x->pend = 0; x->paused = 1; x->pauses++; }
+        else return;
+    }
+    uint32_t head = s->head, used = head - s->tail, cap = s->cap, mask = cap - 1u;
     int16_t *ring = (int16_t *)(uintptr_t)s->ring;
-    int32_t pk = s->peak;
+    int32_t pk = s->peak & 0xFFFF, bp = (int32_t)((uint32_t)s->peak >> 16);   /* 045: unten Spitze seit Start, oben seit dem letzten rec_level() */
     uint32_t k = 0, n = 0;
     for (; k < 128u && used + ch <= cap; k++) {
         if (ch == 2u) {
@@ -122,18 +169,42 @@ void rec_capture(const int16_t *l, const int16_t *r) {
             int32_t a = l[k] < 0 ? -l[k] : l[k], b = r[k] < 0 ? -r[k] : r[k];
             if (a > pk) pk = a;
             if (b > pk) pk = b;
+            if (a > bp) bp = a;
+            if (b > bp) bp = b;
         } else {
             int32_t m = ((int32_t)l[k] + r[k]) >> 1;
             ring[(head + n) & mask] = (int16_t)m;
             n++; used++;
             if (m < 0) m = -m;
             if (m > pk) pk = m;
+            if (m > bp) bp = m;
         }
     }
-    s->peak = pk;
+    if (pk > 0xFFFF) pk = 0xFFFF;
+    if (bp > 0xFFFF) bp = 0xFFFF;
+    s->peak = (int32_t)((uint32_t)pk | ((uint32_t)bp << 16));
     if (k < 128u) s->drops += (128u - k) * ch;
     BARRIER();
     s->head = head + n;
+    if (x->waiting || x->paused) {                          /* 045: nur den Vorlauf behalten */
+        if (loud) { x->waiting = 0; x->paused = 0; x->quiet = 0; return; }
+        uint32_t t = s->tail, keep = PRE * ch, h = head + n;
+        if (h - t > keep) { uint32_t d = h - keep - t; x->skip += d; BARRIER(); s->tail = t + d; }
+        return;
+    }
+    if (x->p_on) {
+        if (loud) x->quiet = 0;
+        else if ((x->quiet += 128u) >= HOLD) { x->quiet = 0; x->pend = 1; }
+    }
+}
+
+/* 045: Audio-ISR ohne Eingangsblock (Stream steht, Vorpuffer, Unterlauf): Stille aufnehmen, damit die Zeit
+ * weiterlaeuft – mit "Pause On Silence" wird sie wie jede Stille uebersprungen. */
+static const int16_t ZERO[128];
+void rec_silence(void) {
+    volatile rec_t *s = REC;
+    if (s->magic != REC_MAGIC || s->state != R_REC) return;
+    rec_capture(ZERO, ZERO);
 }
 
 /* Steuerung: 1 = starten, 0 = stoppen. Rueckgabe 1 = angenommen. */
@@ -152,11 +223,20 @@ int rec_request(int on) {
 }
 
 /* Zustand fuer Anzeige/USB: Zustand, Zehntelsekunden, verlorene Samples, Dateinummer */
+/* 045: Spitze des Eingangs seit dem letzten Aufruf (0…32768), fuer den Pegel in der REC-Anzeige; setzt sie zurueck */
+uint32_t rec_level(void) {
+    volatile rec_t *s = REC;
+    if (s->magic != REC_MAGIC) return 0;
+    uint32_t v = (uint32_t)s->peak >> 16;
+    s->peak = (int32_t)((uint32_t)s->peak & 0xFFFFu);
+    return v;
+}
+
 void rec_status(uint32_t *st, uint32_t *ds, uint32_t *drops, uint32_t *num, int32_t *err) {
     volatile rec_t *s = REC;
     *st = s->magic == REC_MAGIC ? s->state : 0xFFu;
     uint32_t ch = s->ch ? s->ch : 1u;
-    *ds = (s->state == R_REC || s->state == R_STOP ? s->head : s->tail) / ch * 10u / 44100u;
+    *ds = ((s->state == R_REC || s->state == R_STOP ? s->head : s->tail) - RX->skip) / ch * 10u / 44100u;   /* 045: ohne Verworfenes */
     *drops = s->drops; *num = s->num; *err = s->err;
 }
 
@@ -259,7 +339,7 @@ static int assign_track(int slot) {
 static void import_last(void) {
     volatile rec_t *s = REC;
     s->imp_slot = -1; s->imp_res = -1;
-    if (s->tail < 441u * s->ch) { s->imp_res = 3; return; }            /* unter 10 ms (kein USB-Audio): nicht laden */
+    if (s->tail - RX->skip < 441u * s->ch) { s->imp_res = 3; return; }            /* unter 10 ms (kein USB-Audio): nicht laden */
     int slot = pool_free_slot();
     if (slot < 0) { s->imp_res = 2; return; }
     char dir[sizeof DIR]; for (uint32_t i = 0; i < sizeof DIR; i++) dir[i] = DIR[i];
@@ -273,7 +353,7 @@ void rec_last_import(int32_t *slot, int32_t *res) { *slot = REC->imp_slot; *res 
 static void finish(void) {
     volatile rec_t *s = REC;
     uint8_t h[44];
-    rec_wav_header(h, s->tail, s->ch);
+    rec_wav_header(h, s->tail - RX->skip, s->ch);
     if (s->heap) { FREE_RING((void *)(uintptr_t)s->ring); s->heap = 0; s->ring = (uint32_t)(uintptr_t)RING; s->cap = CAP; }
     uint32_t bw = 0;
     int r = F_LSEEK(FIL_RAM, 0);
@@ -313,7 +393,10 @@ volatile int32_t *rec_menu_value(void) { return REC->magic == REC_MAGIC ? &REC->
 /* Hauptschleife */
 void rec_poll(void) {
     volatile rec_t *s = REC;
-    if (s->magic != REC_MAGIC) return;
+    if (s->magic != REC_MAGIC || s->state > R_STOP) {        /* 12.11.: Zustand zerstoert → neu anlegen statt dauerhaft blockiert */
+        rec_init();                                         /* Heap-Ring nicht freigeben: Zeiger ist dann Muell */
+        return;
+    }
     if (s->menu != s->menu_seen) {                          /* Menuezeile vom Nutzer geaendert (Menue laeuft auch hier) */
         int32_t want = s->menu ? 1 : 0, busy = s->state != R_IDLE;
         if (want != busy) (void)rec_request(want);
@@ -350,6 +433,10 @@ static void rec_step(void) {
         }
         s->num = n; s->err = 0; s->drops = 0; s->peak = 0;
         s->tail = 0;
+        {   volatile rx_t *x = RX;                          /* 045: Einstellungen gelten fuer die ganze Aufnahme */
+            x->skip = 0; x->quiet = 0; x->pend = 0; x->paused = 0;
+            x->w_on = REC_WAIT() ? 1u : 0u; x->p_on = REC_PAUSE() ? 1u : 0u;
+            x->waiting = x->w_on; }
         BARRIER();
         s->head = 0;
         s->t_start = MILLIS();
@@ -358,10 +445,18 @@ static void rec_step(void) {
         return;
     }
     case R_REC:
-        if (!UI_ON() || s->head >= MAX_SAMPLES * s->ch) s->state = R_STOP;
-        if (write_some(2u, 0) < 0) { finish(); return; }
+        if (!UI_ON() || s->head - RX->skip >= MAX_SAMPLES * s->ch) {
+            s->state = R_STOP;                              /* 12.11.: sofort abschliessen – nach einem Variantenwechsel */
+            rec_step();                                     /* gehoert der FIL-Bereich bald dem Multitrack-Sendepuffer */
+            return;
+        }
+        if (RX->waiting || RX->paused) return;              /* 045: Ring gehoert dem ISR (nur Vorlauf) */
+        if (write_some(2u, RX->pend ? 1 : 0) < 0) { finish(); return; }
         return;
     case R_STOP:
+        {   volatile rx_t *x = RX;                          /* 045: Vorlauf ohne Signal bzw. Stille nicht schreiben */
+            if (x->waiting || x->paused || x->pend) { uint32_t d = s->head - s->tail; x->skip += d; s->tail = s->head; }
+            x->waiting = 0; x->paused = 0; x->pend = 0; }
         if (write_some(s->cap / CHUNK + 1u, 1) < 0) { finish(); return; }
         finish();
         return;

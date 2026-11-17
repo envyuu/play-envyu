@@ -1,7 +1,7 @@
 /* Patch 015 (Basis 012) – USB-Audio Play → PC (UAC 1.0, 44,1 kHz, 16 Bit): Stereo-Master (IF4, wie 012) und
  * Multitrack (IF5, multitrack.c), Polyend Play Rev A, Firmware 1.6.0
  * ENTWURF – 015 nur am PC getestet. Der Stereo-Teil (012) ist am Geraet bestaetigt (03.11.2026).
- * Aenderungen gegenueber 012: TARGET 512 → 256, Deskriptor um IF5 erweitert (357 B, RAM 0x1FFFD4C0),
+ * Aenderungen gegenueber 012: TARGET 512 → 256, Deskriptor um IF5 erweitert (357 B, 046: 365 B, RAM 0x1FFFD4C0),
  * ep_hook auch fuer EP7, ua_setup reicht IF5/EP 0x87 an mt_setup weiter, audio_tap ruft mt_pre/mt_post.
  *
  * Idee (Details: Vault-Notiz Firmware/USB_Audio.md):
@@ -95,11 +95,11 @@ typedef struct {               /* per PEEK 1FFFD000.. lesbar (Patch 011/usbup) *
 } ua_t;
 
 /* ------------------------------------------------------------------ Konfigurationsdeskriptor */
-#define CFG_LEN 357u
+#define CFG_LEN 365u
 #define MT_IFNUM 5u
 #define MT_EPA   0x87u
 const uint8_t ua_cfg_desc[CFG_LEN] = {
-    /* Konfiguration: wTotalLength 357, 6 Interfaces (Original: 181, 4; 012: 240, 5) */
+    /* Konfiguration: wTotalLength 365 (046: +IAD), 6 Interfaces (Original: 181, 4; 012: 240, 5) */
     0x09, 0x02, CFG_LEN & 0xFF, CFG_LEN >> 8, 0x06, 0x01, 0x00, 0xC0, 0x32,
     /* ---- ab hier bis "Ende Original" byte-identisch mit 0xAED71..0xAEDFC ---- */
     0x08, 0x0B, 0x00, 0x02, 0x02, 0x02, 0x01, 0x04,             /* IAD CDC 0..1 */
@@ -123,6 +123,7 @@ const uint8_t ua_cfg_desc[CFG_LEN] = {
     0x09, 0x05, 0x84, 0x02, 0x40, 0x00, 0x00, 0x00, 0x00,       /* EP4 IN Bulk (MIDI) */
     0x05, 0x25, 0x01, 0x01, 0x03,
     /* ---- Ende Original (HID-Interface 3 mit EP6/EP7 entfaellt) ---- */
+    0x08, 0x0B, 0x03, 0x03, 0x01, 0x01, 0x00, 0x00,             /* 046: IAD Audio IF3..5 (Windows gruppiert sonst nicht, wie Teensy MIDI_AUDIO_SERIAL) */
     /* IF3 Audio Control */
     0x09, 0x04, UA_IF_AC, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00,
     0x0A, 0x24, 0x01, 0x00, 0x01, 0x34, 0x00, 0x02, UA_IF_AS, MT_IFNUM, /* AC-Header bcdADC 1.00, wTotalLength 52, AS-IF {4, 5} */

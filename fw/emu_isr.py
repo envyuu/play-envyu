@@ -15,7 +15,7 @@ from unicorn.arm_const import *
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from check_ppf import images  # noqa: E402
 
-CFG_LEN = 357                     # 015: Konfigurationsdeskriptor
+CFG_LEN = 365                     # 015: Konfigurationsdeskriptor
 DESC_RAM = 0x1FFFD4C0
 STOP = 0x000FFF00                 # Rueckkehradresse (unbenutzter Flash), Emulation endet dort
 BDT = 0x1FFF0000
