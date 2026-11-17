@@ -44,7 +44,9 @@ Unofficial, community-made extensions for the Polyend Play. This repository cont
 
 ## Install
 
-You need Python 3 and the official firmware 1.6.0 from Polyend's downloads page.
+**Easiest:** use the [website](https://envyuu.github.io/play-envyu/#install). Choose the official firmware, and the page patches it in your browser (nothing is uploaded). Then either download the file for the SD card, or, if the mod is already installed (0.1 or later), **update over USB right from the page** in Chrome, Edge or Opera on a computer.
+
+**Command line:** you need Python 3 and the official firmware 1.6.0 from Polyend's downloads page.
 
 ```
 python3 patcher/play_patch.py PolyendPlay_v1.6.0.ppf -o PolyendPlay_v1.6.0_mod.ppf
