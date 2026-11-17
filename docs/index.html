@@ -6,7 +6,7 @@
 <title>play-envyu</title>
 <meta name="description" content="Unofficial community firmware mod for the Polyend Play: beat slicer, sampling over USB, USB audio, tap tempo, MIDI effects, arpeggiator and new randomize types.">
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -225,18 +225,32 @@
         <label class="drop" id="drop"><input type="file" id="ppfFile" accept=".ppf"><span>Choose or drop <code>PolyendPlay_v1.6.0.ppf</code></span></label>
         <ol class="log" id="patchLog" aria-live="polite"></ol>
         <label class="check" id="riskL" hidden><input type="checkbox" id="risk"> <span>I understand this is unofficial and I flash it at my own risk.</span></label>
-        <a class="btn primary" id="patchDl" hidden>Download patched firmware</a>
+        <div class="ways" id="ways" hidden>
+          <div class="way">
+            <h3>SD card <small>first install · any browser</small></h3>
+            <a class="btn primary" id="patchDl">Download patched firmware</a>
+            <ol class="mini">
+              <li>Copy it to the card's <code>Firmware</code> folder. Keep few files there: a device with 31 of them stopped at “Preparing”.</li>
+              <li>Install it from the firmware update menu. It takes about 35 seconds. Don't switch off.</li>
+            </ol>
+          </div>
+          <div class="way">
+            <h3>Over USB <small>update · mod already installed</small></h3>
+            <button class="btn primary" id="usbGo" type="button">Connect the Play and update</button>
+            <div class="bar" id="usbBar" hidden><i></i></div>
+            <ol class="log" id="usbLog" aria-live="polite"></ol>
+            <p class="foot" id="usbNote">Switch the Play on and connect it by USB. Works in Chrome, Edge or Opera on a computer. Nothing is installed until you press <em>Install now</em>.</p>
+          </div>
+        </div>
       </div>
     </li>
-    <li><strong>Copy the new <code>.ppf</code> to the card's <code>Firmware</code> folder.</strong> Keep few files there: a device with 31 of them stopped at “Preparing”.</li>
-    <li><strong>Install it from the firmware update menu.</strong> It takes about 35 seconds. Don't switch off.</li>
-    <li><strong>Switch the device off and on once</strong> to confirm it starts from cold.</li>
+    <li><strong>Switch the device off and on once</strong> after the install, to confirm it starts from cold.</li>
   </ol>
   <div class="cols">
     <div class="panel"><h3>Going back</h3><p>Put only the original <code>.ppf</code> in <code>/Firmware</code> and install it from the update menu.</p>
     <p><strong>Safety net:</strong> if the mod's code is damaged, for example by an interrupted update, the Play starts as stock. Install the mod or the original again from the update menu.</p>
     <p><strong>If the device hangs:</strong> switch it off, take the card to a computer and leave a single working <code>.ppf</code> in <code>/Firmware</code>. Put the card back, switch on and briefly press the hidden reset button. In this emergency mode the device picks a file at random, so one file matters.</p></div>
-    <div class="panel"><h3>Updating over USB</h3><p>Once the mod is installed, a command-line tool can transfer files and start updates without moving the card. It needs Python with <code>pyserial</code>:</p>
+    <div class="panel"><h3>Command line (advanced)</h3><p>The same USB connection also works from a terminal: transfer files and start updates without moving the card. It needs Python with <code>pyserial</code>:</p>
     <pre><code>python3 tools/play_upload.py ls /Firmware
 python3 tools/play_upload.py put Kick.wav /Samples/Kick.wav
 python3 tools/play_upload.py update New.ppf</code></pre>
@@ -259,7 +273,8 @@ python3 tools/play_upload.py update New.ppf</code></pre>
 <script src="fxdata.js?v=8"></script>
 <script src="app.js?v=8"></script>
 <script src="devicemap.js?v=8"></script>
-<script src="patcher.js?v=8"></script>
+<script src="patcher.js?v=9"></script>
 <script src="slicer.js?v=1"></script>
+<script src="usb.js?v=1"></script>
 </body>
 </html>
