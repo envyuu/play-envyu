@@ -7,6 +7,7 @@
   const input = document.getElementById('ppfFile'), drop = document.getElementById('drop');
   let url = null;
 
+  const count = (n, t) => { if (window.envyuCount) window.envyuCount(n, t); };
   const say = (t, err) => { const li = document.createElement('li'); li.textContent = t; if (err) li.className = 'err'; log.append(li); };
   const ways = document.getElementById('ways');
   const reset = () => { log.replaceChildren(); ways.hidden = true; riskL.hidden = true; risk.checked = false; if (url) URL.revokeObjectURL(url); url = null; window.dispatchEvent(new Event('envyu-reset')); };
@@ -102,9 +103,14 @@
       url = URL.createObjectURL(new Blob([result], { type: 'application/octet-stream' }));
       dl.href = url; dl.download = `PolyendPlay_v${m.firmware_version}_mod.ppf`;
       riskL.hidden = false;
+      count('patch-ok-' + m.mod_version, 'Patched ' + m.mod_version);
       window.dispatchEvent(new CustomEvent('envyu-patched', { detail: { data: result, name: dl.download } }));
-    } catch (e) { say(e.message, true); }
+    } catch (e) {
+      say(e.message, true);
+      count(/not the official firmware/.test(e.message) ? 'patch-wrong-file' : 'patch-error', e.message);
+    }
   }
+  dl.addEventListener('click', () => count('download-ppf', 'Downloaded patched .ppf'));
   risk.onchange = () => { ways.hidden = !risk.checked; };
   input.onchange = () => { if (input.files[0]) run(input.files[0]); };
   ['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));

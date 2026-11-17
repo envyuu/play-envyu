@@ -7,6 +7,7 @@
   const VID = 0x16D0, PID = 0x0EA0, BAUD = 115200;   /* never 134 baud: that switches the Teensy core to programming mode */
   let file = null, stage = 'idle', link = null;
 
+  const count = (n, t) => { if (window.envyuCount) window.envyuCount(n, t); };
   const say = (t, kind) => { const li = document.createElement('li'); li.textContent = t; if (kind) li.className = kind; log.append(li); };
   const setBar = f => { bar.hidden = f == null; if (f != null) fill.style.width = Math.round(f * 100) + '%'; };
   const button = (text, enabled = true) => { go.textContent = text; go.disabled = !enabled; };
@@ -45,7 +46,7 @@
     log.replaceChildren(); setBar(null);
     button('Connecting…', false);
     try { link = await connect(); }
-    catch (e) { button('Connect the Play and update'); if (e.name !== 'NotFoundError') say('Could not open the Play: ' + e.message, 'err'); return; }
+    catch (e) { button('Connect the Play and update'); if (e.name !== 'NotFoundError') { say('Could not open the Play: ' + e.message, 'err'); count('usb-open-fail', e.message); } return; }
     try {
       let r;
       try { r = await link.cmd('PING', 1.5); } catch (_) { r = ''; }
@@ -63,9 +64,10 @@
       r = await link.cmd(`CRC ${path}`, 60);
       if (r !== `OK ${file.data.length} ${crc}`) throw new Error('The file on the card does not match (' + r + '). Nothing was installed.');
       say(`Uploaded and verified on the card: ${file.name}`);
+      count('usb-upload-ok', 'USB upload verified');
       stage = 'ready'; button('Install now on the Play');
       note.textContent = 'The Play restarts and installs the update (about 35 seconds). Do not switch it off.';
-    } catch (e) { say(e.message, 'err'); await link.close(); link = null; stage = 'idle'; setBar(null); button('Try again'); }
+    } catch (e) { say(e.message, 'err'); count('usb-upload-fail', e.message); await link.close(); link = null; stage = 'idle'; setBar(null); button('Try again'); }
   }
 
   async function install() {
@@ -76,7 +78,8 @@
       say('Installing. The Play restarts by itself – do not switch it off.', 'done');
       say('When it shows the pattern again, switch it off and on once.', 'done');
       button('Done', false); stage = 'done';
-    } catch (e) { say(e.message + ' The file stays on the card: you can install it from the update menu.', 'err'); button('Try again'); stage = 'idle'; }
+      count('usb-flash-start', 'USB install started');
+    } catch (e) { count('usb-flash-fail', e.message); say(e.message + ' The file stays on the card: you can install it from the update menu.', 'err'); button('Try again'); stage = 'idle'; }
     if (link) { await link.close(); link = null; }
     setBar(null);
   }
@@ -86,6 +89,7 @@
   window.addEventListener('envyu-reset', () => { file = null; stage = 'idle'; log.replaceChildren(); setBar(null); });
   if (!('serial' in navigator)) {
     button('Not available in this browser', false);
+    window.addEventListener('envyu-patched', () => count('usb-unsupported-browser', 'Patched in a browser without WebSerial'), { once: true });
     note.textContent = 'Updating over USB needs Chrome, Edge or Opera on a computer. The SD card way works everywhere.';
   }
 })();
