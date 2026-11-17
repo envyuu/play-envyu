@@ -4,26 +4,65 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>play-envyu</title>
-<meta name="description" content="Unofficial community firmware extensions for the Polyend Play: USB audio and recording, MIDI effects, arpeggiator and Note In Scale.">
+<meta name="description" content="Unofficial community firmware mod for the Polyend Play: beat slicer, sampling over USB, USB audio, tap tempo, MIDI effects, arpeggiator and new randomize types.">
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 <header class="top">
   <a class="brand" href="#main">play-envyu</a>
   <nav aria-label="Sections">
-    <a href="#map">Map</a><a href="#usb">USB audio</a><a href="#rec">Record</a><a href="#perform">Perform</a><a href="#arp">Arp</a><a href="#scale">Scale</a><a href="#install">Install</a>
+    <a href="#slicer">Slicer</a><a href="#rec">Sampling</a><a href="#map">Map</a><a href="#usb">USB audio</a><a href="#perform">Perform</a><a href="#arp">Arp</a><a href="#scale">Randomize</a><a href="#new">More</a><a href="#install">Install</a>
   </nav>
 </header>
 
 <main id="main">
 <section class="hero">
-  <p class="eyebrow">Unofficial mod · Polyend Play · Firmware 1.6.0 · Beta</p>
-  <h1>More play in your Play.</h1>
-  <p class="lead">USB audio in and out, recording straight to the SD card, moving MIDI effects, an arpeggiator and scale-aware randomizing. Try each one below, then patch your own firmware right in this page.</p>
-  <div class="actions"><a class="btn primary" href="#install">Patch your firmware</a><a class="btn" href="#map">Explore the features</a></div>
+  <div class="herogrid">
+    <div>
+      <p class="eyebrow">Unofficial mod · Polyend Play · Firmware 1.6.0 · Version 0.2 beta</p>
+      <h1>More play in your Play.</h1>
+      <p class="lead"><strong>New in 0.2: a beat slicer.</strong> Cut any sample into slices, play them on the pads, sample straight from your computer, tap the tempo. Plus USB audio, moving MIDI effects, an arpeggiator and smarter randomizing. Try each one below, then patch your own firmware right in this page.</p>
+      <div class="actions"><a class="btn primary" href="#install">Patch your firmware</a><a class="btn" href="#slicer">Try the slicer</a></div>
+    </div>
+    <a class="videocard" href="https://youtu.be/DHh3lllCfoM" rel="noopener" aria-label="Watch the 3-minute video on YouTube (opens YouTube)">
+      <img src="img/video02.jpg" alt="Video thumbnail: Beat Slicer, Polyend Play" width="640" height="360">
+      <span class="play" aria-hidden="true">▶</span>
+      <span class="cap">Watch the 3-minute video <small>opens YouTube</small></span>
+    </a>
+  </div>
   <p class="note warn"><strong>At your own risk.</strong> Modified firmware can leave your device unusable and may affect your warranty. Not affiliated with or endorsed by Polyend. Supports Rev A devices; testing is on one device so far.</p>
+</section>
+
+<section id="slicer">
+  <h2>Beat Slicer <span class="new">new in 0.2</span></h2>
+  <p class="sub">Under <em>Engines</em> in the main menu, set a sample track to <em>Slicer</em>. Press <kbd>View</kbd>: the yellow pads play the slices, the steps choose them. Try it with a drum loop made right in your browser, and press <em>Hear it</em> for a groove built from the slices.</p>
+  <div class="tabs" role="tablist" aria-label="Slicer mode">
+    <button role="tab" data-sl="grid" aria-selected="true">Grid <small>even slices</small></button>
+    <button role="tab" data-sl="beat" aria-selected="false">Beat <small>at the hits</small></button>
+    <button role="tab" data-sl="keys" aria-selected="false">Keys <small>slice in tune</small></button>
+    <button role="tab" data-sl="cut" aria-selected="false">Cut <small>by hand</small></button>
+  </div>
+  <div class="lab">
+    <div class="padcol">
+      <figure class="stage"><div class="pd slscreen"><canvas id="slCanvas" width="960" height="720" role="img" aria-label="Simulated display: waveform with slices"></canvas></div><figcaption>Simulated display</figcaption></figure>
+      <div class="slpads" id="slPads" role="group" aria-label="Pads in View: green row switches mode, yellow pads play slices"></div>
+      <div class="knobrow" id="slKnob"><p class="knobhint" id="slHint"></p></div>
+    </div>
+    <div class="scope">
+      <div class="scope-head"><strong id="slTitle"></strong><button class="btn small" id="slPlay" type="button">▶ Hear it</button></div>
+      <p id="slText" class="desc"></p>
+      <ul class="facts">
+        <li><strong>Steps choose slices.</strong> Hold a step and tap a pad, or hold it and turn the encoder. Your loop is rearranged without touching the sample.</li>
+        <li><strong>4 to 32 slices</strong> on an even grid, or at the detected hits (Sensitivity 1 to 16). <kbd>Shift</kbd> + the first yellow row pages through slices beyond 28.</li>
+        <li><strong>Grid Fit:</strong> Micromove stretches the grid and shows the tempo it now matches. One detent back snaps to the whole sample.</li>
+        <li><strong>Groove per step:</strong> hold a step and turn Sample Start: just this step starts a little later.</li>
+        <li><strong>Live Rec</strong> records pad hits as steps, in Slices and in Keys mode.</li>
+        <li>Each slicer track keeps one sample. Settings are saved with the project in <code>engines.cfg</code>.</li>
+      </ul>
+    </div>
+  </div>
 </section>
 
 <section id="map">
@@ -71,8 +110,8 @@
 </section>
 
 <section id="rec">
-  <h2>Record incoming USB audio</h2>
-  <p class="sub">Set <em>Audio Out</em> to <em>Stereo + In</em>, play audio from your computer, then hold <kbd>Live Rec</kbd> for about one second. Try it:</p>
+  <h2>Sampling from your computer</h2>
+  <p class="sub">Set <em>Audio Out</em> to <em>Stereo + In</em>, play audio from your computer, then hold <kbd>Live Rec</kbd> for about one second. On a slicer track, the recording lands on the track and is cut right away. Try the button:</p>
   <div class="lab">
     <div class="recdemo">
       <figure class="stage"><div class="pd" id="recDisp"></div><figcaption>Simulated display</figcaption></figure>
@@ -86,6 +125,8 @@
       <li>Files go to <code>Samples/Live Recordings/Rec_NNN.wav</code> and appear as a sample in your project.</li>
       <li>Up to 6 minutes per take. Choose Mono or Stereo under <em>Rec</em> on the USB Audio page.</li>
       <li>A <code>!</code> in the status means samples were lost, usually a slow SD card.</li>
+      <li><strong>New in 0.2:</strong> <em>Wait For Signal</em> starts on the first sound, <em>Pause On Silence</em> skips the gaps. A red REC pill shows time and level; a red message tells you when Audio Out is not set to Stereo + In.</li>
+      <li><strong>Audio In</strong> page: delay and reverb send for the USB input (0 to 100%).</li>
     </ul></div>
   </div>
 </section>
@@ -138,8 +179,8 @@
 </section>
 
 <section id="scale">
-  <h2>Note In Scale</h2>
-  <p class="sub">Two new Randomize types for MIDI tracks. Double-tap the Randomize knob to reach <em>Randomize Type</em>. The name follows your project scale, for example <em>In C Dorian</em>. New notes stay within one octave of the original and never repeat it.</p>
+  <h2>Randomize</h2>
+  <p class="sub"><strong>New in 0.2:</strong> Swap Steps, Scatter Steps, Thin Out, Melodic Walk, Accent, Call &amp; Response, Shuffle, Humanize, Octave Jump and Note Length, for MIDI and sample tracks. Before you commit, the pads show which steps will change. Below: <strong>Note In Scale</strong>, two types for MIDI tracks. Double-tap the Randomize knob to reach <em>Randomize Type</em>. The name follows your project scale, for example <em>In C Dorian</em>. New notes stay within one octave of the original and never repeat it.</p>
   <div class="lab">
     <div class="controls">
       <figure class="stage"><div class="pd" id="nisDisp"></div><figcaption>Simulated display</figcaption></figure>
@@ -156,6 +197,20 @@
     </div>
   </div>
   <p class="foot">If the project scale is Chromatic, Major on the root note is used. The demo shows a selection of the firmware's scales.</p>
+</section>
+
+<section id="new">
+  <h2>Also new in 0.2</h2>
+  <p class="sub">Smaller things that add up.</p>
+  <div class="newcards">
+    <article><h3>Tap tempo</h3><p>Open the menu and touch the tempo knob in rhythm. From the sixth tap the tempo is set, and it stays steady. A pill shows the taps and the tempo.</p></article>
+    <article><h3>Waveform for sample tracks</h3><p>Start, end, attack and decay are drawn over the sample while you turn the knobs, also while browsing samples.</p></article>
+    <article><h3>Perform keeps your selection</h3><p>The track selection survives switching between Perform and the pattern (menu <em>Keep Selection</em>), and the mute pads flash on every hit in the color of the track's engine.</p></article>
+    <article><h3>Color Mode</h3><p>Pad colors for red-green and blue-yellow color blindness, in <em>envyu Settings</em>.</p></article>
+    <article><h3>USB audio on Windows</h3><p>Now detected with the built-in Windows driver. Please tell us on GitHub whether audio comes through on your machine.</p></article>
+    <article><h3>Safety net</h3><p>The mod checks itself at every start. If its code is ever damaged, the Play starts as stock and you can simply install again.</p></article>
+  </div>
+  <p class="foot">Menu: <em>Engines</em> and <em>USB Audio</em> sit in the main menu; <em>envyu Settings</em> holds Color Mode, Keep Selection and About.</p>
 </section>
 
 <section id="install">
@@ -179,6 +234,7 @@
   </ol>
   <div class="cols">
     <div class="panel"><h3>Going back</h3><p>Put only the original <code>.ppf</code> in <code>/Firmware</code> and install it from the update menu.</p>
+    <p><strong>Safety net:</strong> if the mod's code is damaged, for example by an interrupted update, the Play starts as stock. Install the mod or the original again from the update menu.</p>
     <p><strong>If the device hangs:</strong> switch it off, take the card to a computer and leave a single working <code>.ppf</code> in <code>/Firmware</code>. Put the card back, switch on and briefly press the hidden reset button. In this emergency mode the device picks a file at random, so one file matters.</p></div>
     <div class="panel"><h3>Updating over USB</h3><p>Once the mod is installed, a command-line tool can transfer files and start updates without moving the card. It needs Python with <code>pyserial</code>:</p>
     <pre><code>python3 tools/play_upload.py ls /Firmware
@@ -204,5 +260,6 @@ python3 tools/play_upload.py update New.ppf</code></pre>
 <script src="app.js?v=8"></script>
 <script src="devicemap.js?v=8"></script>
 <script src="patcher.js?v=8"></script>
+<script src="slicer.js?v=1"></script>
 </body>
 </html>

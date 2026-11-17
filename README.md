@@ -1,10 +1,16 @@
 # play-envyu
 
+[![More play in your Play: open the interactive guide and browser patcher](docs/img/banner.png)](https://envyuu.github.io/play-envyu/)
+
+<p align="center"><b><a href="https://envyuu.github.io/play-envyu/">▶ Try every feature in your browser and patch your firmware</a></b> · <a href="https://youtu.be/DHh3lllCfoM">Watch the 3-minute video</a></p>
+
 Unofficial, community-made extensions for the Polyend Play. This repository contains no Polyend firmware: you download the official firmware yourself, and a small script applies the mod to it on your computer.
 
 > **Beta, at your own risk.** Flashing modified firmware can make your device unusable and may affect your warranty. So far it has been tested on one single Rev A device, and testing of this build is still in progress. It is not affiliated with or endorsed by Polyend. "Polyend" and "Play" are used only to say which hardware this is for.
 
 **Website with interactive demos and a browser patcher: https://envyuu.github.io/play-envyu/**
+
+<a href="https://youtu.be/DHh3lllCfoM"><img src="docs/img/video02.jpg" width="480" alt="Video: I added a Beat Slicer to the Polyend Play (opens YouTube)"></a>
 
 ## What it adds
 
