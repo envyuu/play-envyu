@@ -1,0 +1,34 @@
+# Saves GitHub traffic stats (kept by GitHub for only 14 days) as CSV on the branch "traffic".
+# Needs the secret TRAFFIC_TOKEN: a fine-grained token for this repo with "Administration: read".
+name: Traffic stats
+on:
+  schedule:
+    - cron: '17 6 * * 1,4'   # Monday and Thursday morning (UTC)
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  save:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out the traffic branch
+        run: |
+          if git fetch --depth=1 origin traffic:traffic; then
+            git worktree add data traffic
+          else
+            git worktree add --orphan -b traffic data
+          fi
+      - name: Fetch traffic
+        env:
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: python3 tools/traffic.py data
+      - name: Commit
+        working-directory: data
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898283+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet || git commit -m "Traffic stats $(date -u +%F)"
+          git push origin traffic
