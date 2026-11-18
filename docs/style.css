@@ -286,3 +286,17 @@ th, td { text-align: left; padding: 7px 8px 7px 0; border-bottom: 1px solid var(
 .log li.done::before { content: "→ "; color: var(--accent); }
 .btn:disabled { opacity: .55; cursor: default; }
 @media (max-width: 700px) { .ways { grid-template-columns: 1fr; } }
+
+/* Troubleshooting */
+.faq { display: grid; gap: 10px; max-width: 860px; }
+.faq details { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0 16px; }
+.faq summary { cursor: pointer; font-weight: 600; padding: 14px 0; list-style-position: outside; }
+.faq details[open] summary { border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.faq details > ol, .faq details > p { margin: 10px 0 16px; }
+.faq li { margin: 6px 0; }
+.faq li ol { margin: 6px 0; }
+.faq code { overflow-wrap: anywhere; }
+
+/* Small updates (patch releases): one quiet line under the hero, the feature release keeps the headline */
+.update { margin: 14px 0 0; font-size: 14px; color: var(--muted); }
+.update .tag { display: inline-block; font: 600 12px var(--mono); color: var(--accent2); border: 1px solid var(--accent2); border-radius: 999px; padding: 1px 8px; margin-right: 6px; }

@@ -1,7 +1,7 @@
 /* PC-Test fuer multitrack.c (Patch 015) zusammen mit usbaudio.c (Setup-Weiterleitung, audio_tap).
  * gcc -O1 -g -DHOST_TEST -fsanitize=address,undefined -o mt_test usbaudio.c multitrack.c mt_test.c -lm && ./mt_test
  *
- * Teil A: Setup-Requests fuer IF5 / EP 0x87, BDT/ENDPT7, Zusammenspiel mit IF4 (Stereo).
+ * Teil A: Setup-Requests fuer IF5 (049: AC) / IF6 / EP 0x87, BDT/ENDPT7, Zusammenspiel mit IF4 (Stereo).
  * Teil B: Erzeuger-Semantik: Routing-Presets A/B, eigene Tabelle, Stille fuer fehlende Spuren, FX-Summen,
  *         Spur-Lautstaerke mit Rampe, Export (Mixer ausserhalb der Audio-ISR), Alt-Wechsel mitten im Block, Ring voll.
  * Teil C: Simulation Erzeuger (Audio-ISR mit Mixer-Attrappe, die die Hooks wie der echte Mixer aufruft) gegen
@@ -133,27 +133,28 @@ static void reset_all(uint8_t junk) {
 static void test_setup(void) {
     memset(host_ram, 0xA5, sizeof host_ram);
     host_endpt7 = 0x19;
-    CHECK(set_if(5, 1) == 0, "vor der Initialisierung STALL");
+    CHECK(set_if(6, 1) == 0, "vor der Initialisierung STALL");
     reset_all(0xA5);
     CHECK(M->magic == 0x4D54A015u && M->state == 0 && M->head == 0 && M->tail == 0 && M->alt == 0, "Zustand nicht initialisiert");
     CHECK(CFG->magic == 0x4D544346u && CFG->preset == 0 && CFG->flags == 1, "Konfiguration nicht initialisiert");
     CHECK(memcmp((const void *)CFG->route10, PA10, 10) == 0 && memcmp((const void *)CFG->route11, PA11, 11) == 0, "Routing-Vorgaben");
-    CHECK(get_if(5) == 0, "GET_INTERFACE IF5 = 0");
-    CHECK(set_if(5, 1) == 1 && ep0_last_desc() == 0xC8u && ep0_last_ptr() == 0, "SET_INTERFACE IF5 alt1 → ZLP DATA1");
+    CHECK(get_if(6) == 0, "GET_INTERFACE IF6 = 0");
+    CHECK(get_if(5) == 0 && set_if(5, 0) == 1 && set_if(5, 1) == 0, "049: AC-Interface IF5 der Multitrack-Funktion: Alt 0 ja, Alt 1 STALL");
+    CHECK(set_if(6, 1) == 1 && ep0_last_desc() == 0xC8u && ep0_last_ptr() == 0, "SET_INTERFACE IF6 alt1 → ZLP DATA1");
     CHECK(host_endpt7 == 0x14, "ENDPT7 = %02x", host_endpt7);
     CHECK(host_bdt_desc[30] == 0x80 && host_bdt_desc[31] == 0x80 && host_bdt_ptr[30] == TX0 && host_bdt_ptr[31] == TX1, "EP7-Baenke");
     CHECK(M->state == 1 && M->alt == 1 && M->nch == 10 && M->starts == 1, "Zustand nach alt1");
-    CHECK(get_if(5) == 1, "GET_INTERFACE IF5 = 1");
-    CHECK(set_if(5, 2) == 1 && M->nch == 11 && M->alt == 2 && get_if(5) == 2, "alt2 = 11 Kanaele");
-    CHECK(set_if(5, 3) == 0 && M->alt == 2, "alt3 → STALL, Zustand bleibt");
+    CHECK(get_if(6) == 1, "GET_INTERFACE IF6 = 1");
+    CHECK(set_if(6, 2) == 1 && M->nch == 11 && M->alt == 2 && get_if(6) == 2, "alt2 = 11 Kanaele");
+    CHECK(set_if(6, 3) == 0 && M->alt == 2, "alt3 → STALL, Zustand bleibt");
     CHECK(UAS == 0 && get_if(4) == 0, "IF4 unberuehrt");
-    CHECK(set_if(4, 1) == 1 && host_endpt6 == 0x14 && UAS == 1 && M->alt == 2, "IF4 alt1 unabhaengig von IF5");
+    CHECK(set_if(4, 1) == 1 && host_endpt6 == 0x14 && UAS == 1 && M->alt == 2, "IF4 alt1 unabhaengig von IF6");
     setup_req(0x22, 0x01, 0x0100, 0x87, 3); CHECK(ua_setup() == 1 && ep0_last_desc() == 0xC8u, "SET_CUR Rate EP 0x87");
     setup_req(0xA2, 0x81, 0x0100, 0x87, 3);
     CHECK(ua_setup() == 1 && (ep0_last_desc() >> 16) == 3 && ep0_last_ptr()[0] == 0x44 && ep0_last_ptr()[1] == 0xAC, "GET_CUR Rate EP 0x87");
     setup_req(0xA2, 0x81, 0x0200, 0x87, 3); CHECK(ua_setup() == 0, "GET_CUR fremdes Control → STALL");
     setup_req(0x81, 0x0A, 0, 5, 0); CHECK(ua_setup() == 1 && (ep0_last_desc() >> 16) == 0, "GET_INTERFACE wLength 0");
-    setup_req(0x01, 0x0B, 0, 6, 0); CHECK(ua_setup() == 0, "IF6 gibt es nicht → STALL");
+    setup_req(0x01, 0x0B, 0, 7, 0); CHECK(ua_setup() == 0, "IF7 gibt es nicht → STALL (049)");
     setup_req(0x01, 0x0B, 0, 0, 0); CHECK(ua_setup() == 0, "IF0 weiterhin STALL");
     /* EP7-Token im Vorfuellen: Nullpaket */
     mt_ep_token(0x78);
@@ -163,10 +164,10 @@ static void test_setup(void) {
     CHECK(host_bdt_desc[28] == 0x12345678u, "EP7-RX darf nicht veraendert werden");
     /* SET_CONFIGURATION: ENDPT7 = 0x19 → beim naechsten Setup alt 0 */
     host_endpt7 = 0x19;
-    CHECK(get_if(5) == 0 && M->state == 0, "nach SET_CONFIGURATION alt 0");
+    CHECK(get_if(6) == 0 && M->state == 0, "nach SET_CONFIGURATION alt 0");
     mt_ep_token(0x7C);
     CHECK(host_bdt_desc[31] == 0, "im Zustand AUS nicht neu armieren");
-    set_if(5, 1); set_if(5, 0);
+    set_if(6, 1); set_if(6, 0);
     CHECK(host_bdt_desc[30] == 0 && host_bdt_desc[31] == 0 && M->state == 0 && host_endpt7 == 0x14, "alt0 gibt Baenke frei");
 }
 
@@ -197,8 +198,8 @@ static uint32_t do_token(rx_t *x) {
 
 /* ---------------- Teil B ---------------- */
 static void push_blocks(int n) { for (int k = 0; k < n; k++) block(); }
-static void sw2(void) { set_if(5, 2); }
-static void sw0(void) { set_if(5, 0); }
+static void sw2(void) { set_if(6, 2); }
+static void sw0(void) { set_if(6, 0); }
 static int16_t ring_at(uint32_t frame, uint32_t nch, uint32_t ch) {
     const int16_t *ring = (const int16_t *)(void *)(host_ram + 0x1E00);
     return ring[(frame % 384u) * nch + ch];
@@ -206,7 +207,7 @@ static int16_t ring_at(uint32_t frame, uint32_t nch, uint32_t ch) {
 
 static void test_semantics(void) {
     /* Preset A, 10 Kanaele, Spur 4 fehlt */
-    reset_all(0x3C); set_if(5, 1);
+    reset_all(0x3C); set_if(6, 1);
     present = 0xFF & ~(1u << 3);
     push_blocks(1);
     CHECK(M->head == 128 && M->blocks == 1, "Block freigegeben (head %u)", M->head);
@@ -232,7 +233,7 @@ static void test_semantics(void) {
     push_blocks(3);
     CHECK(M->head == 384 && ring_at(0, 10, 0) == before && M->wr_ok == 0, "voller Ring: Block verworfen");
     /* Export: Mixer im Hauptprogramm → Hooks ohne Reservierung tun nichts */
-    reset_all(0); set_if(5, 1);
+    reset_all(0); set_if(6, 1);
     int16_t xx[128]; memset(xx, 0x11, sizeof xx);
     uint32_t hc = M->hook_calls;
     mt_track(xx, 0, mixer); mt_fx(xx, xx, 8);
@@ -242,7 +243,7 @@ static void test_semantics(void) {
     for (uint32_t f = 0; f < 256; f++) for (int c = 0; c < 8; c++) ok &= ring_at(f, 10, c) == 0;
     CHECK(ok && M->head == 256, "Export: Spuren still, Bloecke laufen weiter");
     /* Spur-Lautstaerke: Rampe von vorigem (max L/R) zu aktuellem Wert */
-    reset_all(0); set_if(5, 1);
+    reset_all(0); set_if(6, 1);
     set_gain(2, 0x8000, 0x4000, 0x2000, 0x10000);   /* aktuell max 0x8000, vorher max 0x10000 */
     set_gain(5, -5, 0x20000, 0, 0);                  /* Begrenzung auf [0, 1.0] */
     push_blocks(1);
@@ -260,7 +261,7 @@ static void test_semantics(void) {
     for (int k = 128; k < 256; k++) ok &= ring_at(k, 10, 2) == sig_track(2, k);
     CHECK(ok, "vor Fader (flags = 0): unveraendert");
     /* Alt-Wechsel mitten im Block (USB-ISR unterbricht den Mixer) → Block nicht freigeben, danach 11 Kanaele */
-    reset_all(0); set_if(5, 1); push_blocks(1);
+    reset_all(0); set_if(6, 1); push_blocks(1);
     preempt_at = 4; preempt_cb = sw2;
     uint32_t h0 = M->head;
     push_blocks(1);
@@ -278,7 +279,7 @@ static void test_semantics(void) {
     push_blocks(2);
     CHECK(M->head == h0 && M->wr_ok == 0, "im Zustand AUS keine Bloecke");
     /* Muell in head/tail (z. B. Speicherfehler) → keine Zugriffe ausserhalb des Rings (ASan) */
-    reset_all(0); set_if(5, 2);
+    reset_all(0); set_if(6, 2);
     M->head = 0xFFFFFF00u; M->tail = 0x12345u; push_blocks(2);
     M->tail = 0xFFFFFFFFu; mt_ep_token(0x78); mt_ep_token(0x7C);
     CHECK(M->head < MOD && M->tail < MOD, "Muellzustand bereinigt (head %x tail %x)", M->head, M->tail);
@@ -299,7 +300,7 @@ static int run_scen(const scen_t *sc, unsigned seed) {
     reset_all(0x5A);
     gen_f = 0x00100000u;
     CFG->preset = (uint8_t)sc->preset;
-    set_if(5, sc->alt);
+    set_if(6, sc->alt);
     if (sc->stereo_too) set_if(4, 1);
     const double tblk = 128.0 / sc->fs, tfrm = 1e-3 * (1.0 + sc->host_ppm * 1e-6);
     double tp = 0.0;
@@ -327,9 +328,9 @@ static int run_scen(const scen_t *sc, unsigned seed) {
         }
         if (skip) continue;
         if (sc->switch_at && frame == sc->switch_at) {          /* Host wechselt 10 ↔ 11 Kanaele */
-            set_if(5, 0); push_blocks(10);
+            set_if(6, 0); push_blocks(10);
             int alt2 = sc->alt == 1 ? 2 : 1;
-            set_if(5, alt2);
+            set_if(6, alt2);
             x.nch = alt2 == 1 ? 10 : 11;
             x.route = sc->preset == 1 ? (alt2 == 1 ? PB10 : PB11) : (alt2 == 1 ? PA10 : PA11);
             x.have = 0; x.bank = 0;
@@ -363,11 +364,21 @@ static int run_scen(const scen_t *sc, unsigned seed) {
     return fails == f0;
 }
 
+void mt_set_split(uint32_t split);
 int main(void) {
-    printf("Teil A: Setup/EP0/BDT (IF5, EP 0x87)\n");
+    printf("Teil A: Setup/EP0/BDT (IF5/IF6, EP 0x87)\n");
     test_setup();
     printf("Teil B: Routing, Rampen, Export, Alt-Wechsel, Ring voll\n");
     test_semantics();
+    printf("Teil A2: 049 kombiniertes Layout (Stereo + Multi, Multitrack-AS auf IF5)\n");
+    reset_all(0); mt_set_split(0);
+    CHECK(set_if(5, 1) == 1 && M->alt == 1 && get_if(5) == 1, "kombiniert: SET/GET_INTERFACE IF5 = Multitrack");
+    CHECK(set_if(5, 2) == 1 && M->alt == 2 && M->nch == 11, "kombiniert: IF5 alt2 = 11 Kanaele");
+    CHECK(set_if(6, 0) == 0, "kombiniert: IF6 gibt es nicht → STALL");
+    CHECK(set_if(5, 0) == 1 && M->alt == 0, "kombiniert: IF5 alt0 stoppt");
+    mt_set_split(1);
+    CHECK(set_if(5, 1) == 0 && set_if(6, 1) == 1 && M->alt == 1, "getrennt: IF5 = AC (alt1 STALL), IF6 = Multitrack");
+    set_if(6, 0);
     printf("Teil C: Simulation\n");
     const double FS = 180e6 * 16.0 / 255.0 / 256.0;
     const scen_t sc[] = {

@@ -15,8 +15,8 @@ from unicorn.arm_const import *
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from check_ppf import images  # noqa: E402
 
-CFG_LEN = 365                     # 015: Konfigurationsdeskriptor
-DESC_RAM = 0x1FFFD4C0
+CFG_LEN = 248                     # 049: beim Start Stereo-Deskriptor (Standard), vorher Stereo + Multi
+DESC_RAM = 0x1FFFD4A0   # 049
 STOP = 0x000FFF00                 # Rueckkehradresse (unbenutzter Flash), Emulation endet dort
 BDT = 0x1FFF0000
 USB0 = 0x40072000
@@ -140,7 +140,7 @@ def main():
     print("Start: usbinit_hook (ua_init + Original-usb_init)")
     dev.call(nm["usbinit_hook"])
     check(dev.r32(0x1FFFD000) == 0x55A0D10A, "Zustand initialisiert (magic)")
-    desc = bytes(img[nm["ua_cfg_desc"] - 0:nm["ua_cfg_desc"] + CFG_LEN])
+    desc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "desc_st_fw.bin"), "rb").read()   # 049: Stereo (check_variants.py, Build)
     check(bytes(dev.uc.mem_read(DESC_RAM, CFG_LEN)) == desc, f"Deskriptor im RAM bei 0x{DESC_RAM:08X}")
     pool0 = dev.r32(0x1FFF1DD0)
 
@@ -149,12 +149,14 @@ def main():
     check(dev.hw.endpt(0) == 0x0D, "nach Reset ENDPT0 = 0x0D")
     dd = dev.control(setup(0x80, 6, 0x0100, 0, 64))
     check(dd is not None and dd[:4] == bytes.fromhex("12011001") and dd[8:12] == bytes.fromhex("d016a00e"), f"Device-Deskriptor {dd.hex() if dd else None}")
+    check(dd is not None and dd[12:14] == bytes.fromhex("8102"), f"049: bcdDevice 0x0281 (Stereo) beim Start ({dd[12:14].hex() if dd else None})")
     cd = dev.control(setup(0x80, 6, 0x0200, 0, 9))
-    check(cd is not None and cd[2] | cd[3] << 8 == CFG_LEN and cd[4] == 6, f"Config-Kopf: wTotalLength {cd[2] | cd[3] << 8 if cd else '-'}, {cd[4] if cd else '-'} Interfaces")
+    check(cd is not None and cd[2] | cd[3] << 8 == CFG_LEN and cd[4] == 5,   # 049: Stereo, 5 Interfaces
+          f"Config-Kopf: wTotalLength {cd[2] | cd[3] << 8 if cd else '-'}, {cd[4] if cd else '-'} Interfaces")
     cd = dev.control(setup(0x80, 6, 0x0200, 0, 255))
     check(cd == desc[:255], f"Config-Deskriptor mit wLength 255 (Windows) → {len(cd) if cd else 0} Byte")
     cd = dev.control(setup(0x80, 6, 0x0200, 0, 0xFFFF))
-    check(cd == desc, f"vollstaendiger Config-Deskriptor ({len(cd) if cd else 0} Byte) = ua_cfg_desc")
+    check(cd == desc, f"vollstaendiger Config-Deskriptor ({len(cd) if cd else 0} Byte) = Stereo-Deskriptor")
     dev.control(setup(0x00, 5, 7, 0, 0))               # SET_ADDRESS 7
     check(dev.hw.r[REG["ADDR"]] == 7, "SET_ADDRESS")
     dev.control(setup(0x00, 9, 1, 0, 0))               # SET_CONFIGURATION 1

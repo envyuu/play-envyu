@@ -6,14 +6,14 @@
 <title>play-envyu</title>
 <meta name="description" content="Unofficial community firmware mod for the Polyend Play: beat slicer, sampling over USB, USB audio, tap tempo, MIDI effects, arpeggiator and new randomize types.">
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 <header class="top">
   <a class="brand" href="#main">play-envyu</a>
   <nav aria-label="Sections">
-    <a href="#slicer">Slicer</a><a href="#rec">Sampling</a><a href="#map">Map</a><a href="#usb">USB audio</a><a href="#perform">Perform</a><a href="#arp">Arp</a><a href="#scale">Randomize</a><a href="#new">More</a><a href="#install">Install</a>
+    <a href="#slicer">Slicer</a><a href="#rec">Sampling</a><a href="#map">Map</a><a href="#usb">USB audio</a><a href="#perform">Perform</a><a href="#arp">Arp</a><a href="#scale">Randomize</a><a href="#new">More</a><a href="#install">Install</a><a href="#help">Help</a>
   </nav>
 </header>
 
@@ -25,6 +25,7 @@
       <h1>More play in your Play.</h1>
       <p class="lead"><strong>New in 0.2: a beat slicer.</strong> Cut any sample into slices, play them on the pads, sample straight from your computer, tap the tempo. Plus USB audio, moving MIDI effects, an arpeggiator and smarter randomizing. Try each one below, then patch your own firmware right in this page.</p>
       <div class="actions"><a class="btn primary" href="#install">Patch your firmware</a><a class="btn" href="#slicer">Try the slicer</a></div>
+      <p class="update"><span class="tag">Update 0.2.1</span> Nov 18 · USB audio fix for Windows, Stereo is now the default. <a href="#help-windows">Troubleshooting</a> · <a href="https://github.com/envyuu/play-envyu/blob/main/CHANGELOG.md" rel="noopener">Changelog</a></p>
     </div>
     <a class="videocard" href="https://youtu.be/DHh3lllCfoM" rel="noopener" aria-label="Watch the 3-minute video on YouTube (opens YouTube)">
       <img src="img/video02.jpg" alt="Video thumbnail: Beat Slicer, Polyend Play" width="640" height="360">
@@ -83,7 +84,7 @@
       <figure class="stage"><div class="pd" id="usbDisp"></div><figcaption>Simulated display</figcaption></figure>
       <div class="knobrow" id="usbKnob"><p class="knobhint" id="usbHint"></p></div>
       <label>Audio Out <select id="usbOut">
-        <option value="off">Off</option><option value="stereo">Stereo</option><option value="multi">Stereo + Multi</option><option value="in" selected>Stereo + In</option>
+        <option value="off">Off</option><option value="stereo">Stereo</option><option value="multi">Stereo + Multi</option><option value="in" selected>Stereo + In</option><option value="win">Stereo+Multi (Win)</option>
       </select></label>
       <label id="usbPresetL">Multitrack 9/10 <select id="usbPreset"><option value="master">Master</option><option value="fx">FX Return</option></select></label>
       <label id="usbFaderL">Track Level <select id="usbFader"><option value="pre">Pre Fader</option><option value="post">Post Fader</option></select></label>
@@ -207,7 +208,7 @@
     <article><h3>Waveform for sample tracks</h3><p>Start, end, attack and decay are drawn over the sample while you turn the knobs, also while browsing samples.</p></article>
     <article><h3>Perform keeps your selection</h3><p>The track selection survives switching between Perform and the pattern (menu <em>Keep Selection</em>), and the mute pads flash on every hit in the color of the track's engine.</p></article>
     <article><h3>Color Mode</h3><p>Pad colors for red-green and blue-yellow color blindness, in <em>envyu Settings</em>.</p></article>
-    <article><h3>USB audio on Windows</h3><p>Now detected with the built-in Windows driver. Please tell us on GitHub whether audio comes through on your machine.</p></article>
+    <article><h3>USB audio on Windows</h3><p>Uses the built-in Windows driver. If the Play doesn't show up as an audio device, see <a href="#help-windows">Troubleshooting</a> and tell us on GitHub.</p></article>
     <article><h3>Safety net</h3><p>The mod checks itself at every start. If its code is ever damaged, the Play starts as stock and you can simply install again.</p></article>
   </div>
   <p class="foot">Menu: <em>Engines</em> and <em>USB Audio</em> sit in the main menu; <em>envyu Settings</em> holds Color Mode, Keep Selection and About.</p>
@@ -263,6 +264,39 @@ python3 tools/play_upload.py update New.ppf</code></pre>
     <tr><td>Play+</td><td>Not supported</td></tr></tbody></table>
   </div>
 </section>
+
+<section id="help">
+  <h2>Troubleshooting</h2>
+  <p class="sub">Known problems and what to try. Still stuck? Open an <a href="https://github.com/envyuu/play-envyu/issues" rel="noopener">issue on GitHub</a>.</p>
+  <div class="faq">
+    <details id="help-windows" open>
+      <summary>Windows: MIDI works, but the Play doesn't show up as an audio device</summary>
+      <p class="foot">We can't test on Windows ourselves, so these steps come from user reports and the USB specs. Your feedback helps.</p>
+      <ol>
+        <li><strong>Look in the right place.</strong> Check <em>Settings → System → Sound → Input</em>, or record in Audacity. Cubase and other DAWs that only list ASIO drivers don't show class-compliant USB audio devices; in Cubase, choose the <em>Generic Low Latency ASIO Driver</em>.</li>
+        <li><strong>Start with Stereo.</strong> On the Play: menu <em>USB Audio</em> → <em>Audio Out</em> = <strong>Stereo</strong>. Unplug the cable and plug it in again.</li>
+        <li><strong>Let Windows forget the Play.</strong> Windows remembers settings from earlier firmware and may keep using them.
+          <ol>
+            <li>Unplug the Play.</li>
+            <li>Open <em>Device Manager</em> and choose <em>View → Show hidden devices</em>.</li>
+            <li>Under <em>Sound, video and game controllers</em>, <em>Audio inputs and outputs</em> and <em>Universal Serial Bus devices</em>, right-click every entry of the Play, including greyed-out ones, and choose <em>Uninstall device</em>. Not sure which ones? <em>Properties → Details → Hardware Ids</em> contains <code>VID_16D0&amp;PID_0EA0</code>.</li>
+            <li>Plug the Play in again and wait until Windows has set it up.</li>
+          </ol>
+          Your DAW may afterwards show the Play's MIDI port under a new name or number.</li>
+        <li><strong>Then try the multitrack modes.</strong> <em>Stereo + Multi</em> shows the Play as one audio device. From 0.2.1, <em>Stereo+Multi (Win)</em> shows stereo and multitrack as two separate devices, so stereo keeps working even if Windows doesn't accept the multitrack part.</li>
+        <li><strong>Still nothing?</strong> Comment on <a href="https://github.com/envyuu/play-envyu/issues/2" rel="noopener">issue #2</a> with your Windows version, the <em>Audio Out</em> setting, and what Device Manager shows under <em>Properties → General → Device status</em>. A screenshot helps.</li>
+      </ol>
+    </details>
+    <details id="help-mac-multi">
+      <summary>Mac: the Play shows up as two audio devices</summary>
+      <p><em>Audio Out</em> is set to <em>Stereo+Multi (Win)</em> (from 0.2.1), which splits stereo and multitrack on purpose. Choose <strong>Stereo + Multi</strong> to get one device with all channels.</p>
+    </details>
+    <details id="help-update">
+      <summary>The update stops at “Preparing”</summary>
+      <p>Keep only a few files in the card's <code>Firmware</code> folder. A device with 31 files there stopped at “Preparing”. See <a href="#install">Patch and install</a> for going back and the emergency mode.</p>
+    </details>
+  </div>
+</section>
 </main>
 
 <footer class="end">
@@ -272,7 +306,7 @@ python3 tools/play_upload.py update New.ppf</code></pre>
 <script src="stats.js?v=1"></script>
 <script src="display.js?v=8"></script>
 <script src="fxdata.js?v=8"></script>
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 <script src="devicemap.js?v=8"></script>
 <script src="patcher.js?v=10"></script>
 <script src="slicer.js?v=1"></script>

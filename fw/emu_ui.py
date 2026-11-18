@@ -208,9 +208,9 @@ def main():
     check(dev.r32(UI + 4) == 0, "Modus 0 nach 'Stereo + Multi'")
     dev.bus_reset()
     full = dev.control(setup(0x80, 6, 0x0200, 0, 0xFFFF))
-    check(full is not None and len(full) == 365, f"Deskriptor wieder 365 Byte")
+    check(full is not None and len(full) == 365, f"Deskriptor wieder 365 Byte (049: Stereo + Multi kombiniert wie 046)")
     dev.control(setup(0x00, 5, 9, 0, 0)); dev.control(setup(0x00, 9, 1, 0, 0))
-    check(dev.control(setup(0x01, 0x0B, 1, 5, 0)) == b"" and dev.r32(MT + 0xC) == 1, "SET_INTERFACE IF5 alt 1 → Multitrack (mt alt 1)")
+    check(dev.control(setup(0x01, 0x0B, 1, 5, 0)) == b"" and dev.r32(MT + 0xC) == 1, "SET_INTERFACE IF5 alt 1 → Multitrack (kombiniert, mt alt 1, 049)")
     sizes = set()
     for i in range(30):
         if i % 3 == 0: both_block(b); b += 1

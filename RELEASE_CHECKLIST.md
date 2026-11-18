@@ -28,3 +28,14 @@
 - [ ] Translate code comments and test output to English
 - [ ] Move selected notes from the private vault into `docs/`
 - [ ] Remove or keep the unused weak extension hooks `sl_menu_add` and `sv_assign_sample`
+
+## Small updates (0.x.y)
+
+Feature releases (0.x.0) get the headline, a video and a release post. Small updates stay quiet:
+
+- [ ] `ENVYU_VERSION` in the source's `version.h`, `tools/sync_fw.sh`, full test run, then `tools/release.sh 0.x.y-beta` (manifest, patcher == build)
+- [ ] `CHANGELOG.md`: new entry on top (Added / Changed / Fixed / Notes), compare link at the bottom
+- [ ] Website hero: replace the single `<p class="update">` line (tag, date, one sentence, links). Don't touch the eyebrow, headline or video
+- [ ] README: replace the `Latest:` line under the intro
+- [ ] Tag `v0.x.y-beta`, GitHub release as pre-release, title `0.x.y-beta – <what>`, body = changelog entry + install link
+- [ ] Point open issues to it; no new video

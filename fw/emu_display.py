@@ -159,6 +159,7 @@ def main():
         new += [0x38950, 0x38DE8]                                          # 045 (11.11.): Audio-Typgrenze 9 → 16
         for a45 in (0x223B6, 0x222D4, 0x49D64, 0x49EAE, 0x49FBE, 0xA5A80): new += list(range(a45, a45 + 4))   # 045 (12.11.): Perform behaelt die Spurauswahl
         new += [0x9BAD4]                                                   # 046: Laenge Konfig.-Deskriptor 357 → 365 (IAD Audio)
+        new += list(range(0x9BAD0, 0x9BAD4))                               # 049: RAM-Adresse Konfig.-Deskriptor 0x1FFFD4C0 → 0x1FFFD4A0 (390 B)
         new += list(range(0x405C, 0x4060))                                 # 046: Startbild (Gfx_init-Endsprung → bs_boot)
         new += list(range(0xA05FC, 0xA0600))                               # 17.11.: Ladebildschirm (vtable 0xA05F8 [1] → ld_create)
         rest = sorted({a & ~3 for a in diff if a not in new})

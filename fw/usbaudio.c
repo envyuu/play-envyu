@@ -1,8 +1,9 @@
 /* Patch 015 (Basis 012) – USB-Audio Play → PC (UAC 1.0, 44,1 kHz, 16 Bit): Stereo-Master (IF4, wie 012) und
  * Multitrack (IF5, multitrack.c), Polyend Play Rev A, Firmware 1.6.0
  * ENTWURF – 015 nur am PC getestet. Der Stereo-Teil (012) ist am Geraet bestaetigt (03.11.2026).
- * Aenderungen gegenueber 012: TARGET 512 → 256, Deskriptor um IF5 erweitert (357 B, 046: 365 B, RAM 0x1FFFD4C0),
- * ep_hook auch fuer EP7, ua_setup reicht IF5/EP 0x87 an mt_setup weiter, audio_tap ruft mt_pre/mt_post.
+ * Aenderungen gegenueber 012: TARGET 512 → 256, Deskriptor um IF5 erweitert (357 B, 046: 365 B, RAM 0x1FFFD4C0;
+ *   049: 390 B, RAM 0x1FFFD4A0, Multitrack als eigene Audio-Funktion IF5 (AC) + IF6 (AS)),
+ * ep_hook auch fuer EP7, ua_setup reicht IF5/EP 0x87 (049: IF5/IF6) an mt_setup weiter, audio_tap ruft mt_pre/mt_post.
  *
  * Idee (Details: Vault-Notiz Firmware/USB_Audio.md):
  *  - Das (im Geraet ungenutzte) RawHID-Interface 3 (EP6 IN / EP7 OUT) wird im Konfigurationsdeskriptor ersetzt durch
@@ -34,6 +35,7 @@ void mt_pre(void);
 void mt_post(const int16_t *l, const int16_t *r);
 void mt_ep_token(uint32_t stat);
 void um_early_init(void);                  /* usbmenu.c (Patch 017) */
+void um_boot_desc(void);                   /* usbmenu.c (049): Standardvariante Stereo beim Start */
 void rec_init(void) __attribute__((weak)); /* usbrec.c (Patch 024) */
 int  mt_setup(uint32_t req, uint32_t wValue, uint32_t wIndex, uint8_t *out);
 /* usbin.c (Patch 020); -DNO_UI fuer die alten Host-Tests 1/2 ohne USB-Eingang */
@@ -95,12 +97,13 @@ typedef struct {               /* per PEEK 1FFFD000.. lesbar (Patch 011/usbup) *
 } ua_t;
 
 /* ------------------------------------------------------------------ Konfigurationsdeskriptor */
-#define CFG_LEN 365u
-#define MT_IFNUM 5u
+#define CFG_LEN 390u
+#define MT_ACIF  5u                          /* 049: eigenes Audio-Control-Interface der Multitrack-Funktion */
+#define MT_IFNUM 6u                          /* 049: 5 → 6 */
 #define MT_EPA   0x87u
 const uint8_t ua_cfg_desc[CFG_LEN] = {
-    /* Konfiguration: wTotalLength 365 (046: +IAD), 6 Interfaces (Original: 181, 4; 012: 240, 5) */
-    0x09, 0x02, CFG_LEN & 0xFF, CFG_LEN >> 8, 0x06, 0x01, 0x00, 0xC0, 0x32,
+    /* Konfiguration: wTotalLength 390 (049: zwei Audio-Funktionen), 7 Interfaces (Original: 181, 4; 012: 240, 5; 046: 365, 6) */
+    0x09, 0x02, CFG_LEN & 0xFF, CFG_LEN >> 8, 0x07, 0x01, 0x00, 0xC0, 0x32,
     /* ---- ab hier bis "Ende Original" byte-identisch mit 0xAED71..0xAEDFC ---- */
     0x08, 0x0B, 0x00, 0x02, 0x02, 0x02, 0x01, 0x04,             /* IAD CDC 0..1 */
     0x09, 0x04, 0x00, 0x00, 0x01, 0x02, 0x02, 0x01, 0x00,       /* IF0 CDC Comm */
@@ -123,14 +126,14 @@ const uint8_t ua_cfg_desc[CFG_LEN] = {
     0x09, 0x05, 0x84, 0x02, 0x40, 0x00, 0x00, 0x00, 0x00,       /* EP4 IN Bulk (MIDI) */
     0x05, 0x25, 0x01, 0x01, 0x03,
     /* ---- Ende Original (HID-Interface 3 mit EP6/EP7 entfaellt) ---- */
-    0x08, 0x0B, 0x03, 0x03, 0x01, 0x01, 0x00, 0x00,             /* 046: IAD Audio IF3..5 (Windows gruppiert sonst nicht, wie Teensy MIDI_AUDIO_SERIAL) */
-    /* IF3 Audio Control */
+    /* 049: Stereo und Multitrack sind getrennte Audio-Funktionen (je IAD + Audio Control). Lehnt Windows die
+     * Multitrack-Funktion ab, bleibt Stereo trotzdem nutzbar (046 hatte beide Streams unter einem AC-Interface). */
+    0x08, 0x0B, UA_IF_AC, 0x02, 0x01, 0x01, 0x00, 0x00,         /* IAD Audio IF3..4 (Stereo) */
+    /* IF3 Audio Control (Stereo) */
     0x09, 0x04, UA_IF_AC, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00,
-    0x0A, 0x24, 0x01, 0x00, 0x01, 0x34, 0x00, 0x02, UA_IF_AS, MT_IFNUM, /* AC-Header bcdADC 1.00, wTotalLength 52, AS-IF {4, 5} */
+    0x09, 0x24, 0x01, 0x00, 0x01, 0x1E, 0x00, 0x01, UA_IF_AS,   /* AC-Header bcdADC 1.00, wTotalLength 30, AS-IF {4} */
     0x0C, 0x24, 0x02, 0x01, 0x13, 0x07, 0x00, 0x02, 0x03, 0x00, 0x00, 0x00, /* IT 1: Synthesizer (0x0713), 2 Kanaele L/R */
     0x09, 0x24, 0x03, 0x02, 0x01, 0x01, 0x00, 0x01, 0x00,       /* OT 2: USB Streaming, Quelle IT 1 */
-    0x0C, 0x24, 0x02, 0x03, 0x12, 0x07, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x00, /* IT 3: Multi-track Recorder (0x0712), 11 Kan., ohne Raumlage */
-    0x09, 0x24, 0x03, 0x04, 0x01, 0x01, 0x00, 0x03, 0x00,       /* OT 4: USB Streaming, Quelle IT 3 */
     /* IF4 Audio Streaming (Stereo-Master wie 012), Alt 0 */
     0x09, 0x04, UA_IF_AS, 0x00, 0x00, 0x01, 0x02, 0x00, 0x00,
     /* IF4 Alt 1 */
@@ -139,15 +142,21 @@ const uint8_t ua_cfg_desc[CFG_LEN] = {
     0x0B, 0x24, 0x02, 0x01, 0x02, 0x02, 0x10, 0x01, 0x44, 0xAC, 0x00, /* Typ I, 2 Kanaele, 16 Bit, 44100 Hz */
     0x09, 0x05, UA_EPADDR, 0x05, MAXF * 4u, 0x00, 0x01, 0x00, 0x00,   /* EP6 IN isochron asynchron, 192 B, 1 ms */
     0x07, 0x25, 0x01, 0x00, 0x00, 0x00, 0x00,                   /* CS-Endpunkt: keine Controls */
-    /* IF5 Audio Streaming (Multitrack), Alt 0 */
+    0x08, 0x0B, MT_ACIF, 0x02, 0x01, 0x01, 0x00, 0x00,          /* IAD Audio IF5..6 (Multitrack) */
+    /* IF5 Audio Control (Multitrack) */
+    0x09, 0x04, MT_ACIF, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00,
+    0x09, 0x24, 0x01, 0x00, 0x01, 0x1E, 0x00, 0x01, MT_IFNUM,   /* AC-Header bcdADC 1.00, wTotalLength 30, AS-IF {6} */
+    0x0C, 0x24, 0x02, 0x03, 0x12, 0x07, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x00, /* IT 3: Multi-track Recorder (0x0712), 11 Kan., ohne Raumlage */
+    0x09, 0x24, 0x03, 0x04, 0x01, 0x01, 0x00, 0x03, 0x00,       /* OT 4: USB Streaming, Quelle IT 3 */
+    /* IF6 Audio Streaming (Multitrack), Alt 0 */
     0x09, 0x04, MT_IFNUM, 0x00, 0x00, 0x01, 0x02, 0x00, 0x00,
-    /* IF5 Alt 1: 10 Kanaele (Preset A: Spur 1-8 + Master L/R, Preset B: Spur 1-8 + FX L/R) */
+    /* IF6 Alt 1: 10 Kanaele (Preset A: Spur 1-8 + Master L/R, Preset B: Spur 1-8 + FX L/R) */
     0x09, 0x04, MT_IFNUM, 0x01, 0x01, 0x01, 0x02, 0x00, 0x00,
     0x07, 0x24, 0x01, 0x04, 0x01, 0x01, 0x00,                   /* AS General: Terminal 4 */
     0x0B, 0x24, 0x02, 0x01, 0x0A, 0x02, 0x10, 0x01, 0x44, 0xAC, 0x00, /* Typ I, 10 Kanaele, 16 Bit, 44100 Hz */
     0x09, 0x05, MT_EPA, 0x05, 0x84, 0x03, 0x01, 0x00, 0x00,     /* EP7 IN isochron asynchron, 900 B (45 Frames) */
     0x07, 0x25, 0x01, 0x00, 0x00, 0x00, 0x00,
-    /* IF5 Alt 2: 11 Kanaele (Preset A: + FX mono, Preset B: + Master mono) */
+    /* IF6 Alt 2: 11 Kanaele (Preset A: + FX mono, Preset B: + Master mono) */
     0x09, 0x04, MT_IFNUM, 0x02, 0x01, 0x01, 0x02, 0x00, 0x00,
     0x07, 0x24, 0x01, 0x04, 0x01, 0x01, 0x00,
     0x0B, 0x24, 0x02, 0x01, 0x0B, 0x02, 0x10, 0x01, 0x44, 0xAC, 0x00, /* Typ I, 11 Kanaele */
@@ -170,7 +179,7 @@ extern void host_audio_cb(int16_t *l, int16_t *r);
 #define TXBUF0      ((uint32_t *)(void *)(host_ram + 0x1100))
 #define TXBUF1      ((uint32_t *)(void *)(host_ram + 0x11C0))
 #define EP0BUF      ((uint8_t *)(host_ram + 0x1280))
-#define DESC_RAM    ((uint8_t *)(host_ram + 0x14C0))
+#define DESC_RAM    ((uint8_t *)(host_ram + 0x14A0))
 #define BDT_SET(i, p, d) do { host_bdt_ptr[i] = (p); host_bdt_desc[i] = (d); } while (0)
 #define SETUP_W0    (host_setup[0])
 #define SETUP_W1    (host_setup[1])
@@ -186,7 +195,7 @@ extern void host_audio_cb(int16_t *l, int16_t *r);
 #define TXBUF0      ((uint32_t *)0x1FFFD100u)
 #define TXBUF1      ((uint32_t *)0x1FFFD1C0u)
 #define EP0BUF      ((uint8_t *)0x1FFFD280u)
-#define DESC_RAM    ((uint8_t *)0x1FFFD4C0u)          /* 015: im Multitrack-Bereich */
+#define DESC_RAM    ((uint8_t *)0x1FFFD4A0u)          /* 015: im Multitrack-Bereich; 049: D4C0 → D4A0 (390 B, mt_cfg_t 0x40 → 0x20) */
 #define BDT         ((volatile uint32_t *)0x1FFF0000u)          /* Teensy-BDT, 8 Endpunkte x 4 Eintraege */
 #define BDT_SET(i, p, d) do { BDT[2u * (i) + 1u] = (uint32_t)(p); __asm__ volatile("dmb" ::: "memory"); BDT[2u * (i)] = (d); } while (0)
 #define SETUP_W0    (*(volatile uint32_t *)0x20000D20u)          /* setup.word1: bmRequestType|bRequest|wValue */
@@ -392,6 +401,9 @@ void usbinit_hook(void) {                                   /* ersetzt "bl usb_i
     ua_init();
     mt_init();
     ui_init();                                              /* 020 */
+#ifndef NO_UM
+    um_boot_desc();                                         /* 049: nach ua_init (legt Stereo + Multi ab) und ui_init */
+#endif
     if (rec_init) rec_init();                               /* 024 (nach mt_init: liegt im Multitrack-Bereich) */
     USB_INIT();
 }

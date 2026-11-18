@@ -12,7 +12,7 @@ SAN="-O1 -g -Wall -Wextra -DHOST_TEST -fsanitize=address,undefined -fno-sanitize
 echo "== 1. Host-Test Stereo (012-Teil: Ring, Regler, Setup IF4; ASan/UBSan)"
 gcc $SAN -DNO_UM -DNO_UI -o ua_test usbaudio.c multitrack.c ua_test.c -lm
 ./ua_test desc.bin | tail -1
-echo "== 2. Host-Test Multitrack (Setup IF5, Routing, Rampen, Export, Alt-Wechsel, Simulation; ASan/UBSan)"
+echo "== 2. Host-Test Multitrack (Setup IF5 AC + IF6 AS, Routing, Rampen, Export, Alt-Wechsel, Simulation; ASan/UBSan)"
 gcc $SAN -DNO_UM -DNO_UI -o mt_test usbaudio.c multitrack.c mt_test.c -lm
 ./mt_test | tail -1
 echo "== 3. Deskriptor-Pruefung (UAC 1.0, 2 AS-Interfaces) + Gegenprobe"

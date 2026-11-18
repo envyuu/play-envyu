@@ -4,6 +4,8 @@
 
 <p align="center"><b><a href="https://envyuu.github.io/play-envyu/">▶ Try every feature in your browser and patch your firmware</a></b> · <a href="https://youtu.be/DHh3lllCfoM">Watch the 3-minute video</a></p>
 
+> **Latest: 0.2.1-beta** (2026-11-18), a small update: USB audio fix for Windows, Stereo is now the default Audio Out. See the [changelog](CHANGELOG.md) and [Troubleshooting](https://envyuu.github.io/play-envyu/#help-windows).
+
 Unofficial, community-made extensions for the Polyend Play. This repository contains no Polyend firmware: you download the official firmware yourself, and a small script applies the mod to it on your computer.
 
 > **Beta, at your own risk.** Flashing modified firmware can make your device unusable and may affect your warranty. So far it has been tested on one single Rev A device, and testing of this build is still in progress. It is not affiliated with or endorsed by Polyend. "Polyend" and "Play" are used only to say which hardware this is for.
@@ -24,7 +26,7 @@ Unofficial, community-made extensions for the Polyend Play. This repository cont
 - **Perform:** the track selection survives switching between Perform and the pattern view (menu *Keep Selection*), and the mute pads flash on every step in the colour of the track's engine.
 - **Color Mode** for red-green and blue-yellow colour blindness.
 - **Audio In** page: delay and reverb send for the USB input.
-- **Fix: USB audio on Windows.** 0.1 was not detected as an audio device on Windows. 0.2 is now detected with the built-in Windows driver (tested on Windows 11, stereo input). Please report whether audio comes through on your Windows machine.
+- **Fix: USB audio on Windows.** 0.1 was not detected as an audio device on Windows. 0.2 uses the built-in Windows driver (seen working on Windows 11, stereo input); 0.2.1 adds Stereo as default and a dedicated *Stereo+Multi (Win)* mode. If it doesn't show up on your machine, see [Troubleshooting](https://envyuu.github.io/play-envyu/#help-windows) and report it in [issue #2](https://github.com/envyuu/play-envyu/issues/2).
 - **Safety net:** the mod checks itself at every start and falls back to stock behaviour if its code is damaged (see below).
 
 **From 0.1**

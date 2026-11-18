@@ -5,7 +5,7 @@ usbinit_hook → usb_init, usbotg_isr 0x12B9C mit ep_hook/setup_hook, audio_tap 
 mt_ep_token → BDT EP7 – in einem Cortex-M4-Emulator (unicorn). USB-FS-Hardware wie in emu_isr.py.
 
 Geprueft:
-  1. Enumeration: 365-B-Deskriptor, SET/GET_INTERFACE IF5, ENDPT7.
+  1. Enumeration: 390-B-Deskriptor (049), SET/GET_INTERFACE IF6 (AS) und IF5 (AC), ENDPT7.
   2. Der Mixer rechnet mit den Hooks BITGLEICH wie ohne (Vergleich mit dem 012-Image: Master-Summen, L/R).
   3. Jeder empfangene Frame jedes Kanals = erwartete Quelle (Spur x Lautstaerke-Rampe, Delay/Reverb-Muster, Master).
   4. Preset-Wechsel waehrend des Streamings, 11-Kanal-Alt, Stereo (IF4) parallel = derselbe Master.
@@ -226,7 +226,7 @@ def main():
     rig = Rig(img, stub, snm); rig.nm = nm
     d = rig.dev
     d.call(nm["usbinit_hook"]); d.bus_reset()
-    d.control(setup(0x00, 5, 9, 0, 0)); d.control(setup(0x00, 9, 1, 0, 0)); d.control(setup(0x01, 0x0B, 2, 5, 0))
+    d.control(setup(0x00, 5, 9, 0, 0)); d.control(setup(0x00, 9, 1, 0, 0)); d.control(setup(0x01, 0x0B, 2, 6, 0))
     rref = Rig(refimg, stub, snm, mt=False)
     rref.nm = {"audio_tap": refsym(ref)}
     same, active = True, 0
@@ -239,30 +239,37 @@ def main():
         same &= a[1:] == c[1:]
         for _ in range(3): d.token(7, 1, 0x9)
     check(same and active >= 20, f"24 Bloecke (Lautstaerke/Pan wechselnd, fehlende Spuren), davon {active} mit Abgriff: L/R und Master-Summen identisch")
-    d.control(setup(0x01, 0x0B, 0, 5, 0))               # IF5 aus: Hooks laufen leer (Zustand bei jedem Start ohne Aufnahme)
+    d.control(setup(0x01, 0x0B, 0, 6, 0))               # IF6 aus: Hooks laufen leer (Zustand bei jedem Start ohne Aufnahme)
     same, hc0 = True, d.r32(MT + 0x6C)
     for b in range(24, 36):
         for r in (rig, rref): r.vary_gains(b)
         a = rig.block(b); c = rref.block(b)
         same &= a[1:] == c[1:]
-    check(same and d.r32(MT + 0x6C) - hc0 == 12 * 10, f"12 Bloecke mit IF5 aus: identisch, Hooks {d.r32(MT + 0x6C) - hc0}x ohne Wirkung aufgerufen")
+    check(same and d.r32(MT + 0x6C) - hc0 == 12 * 10, f"12 Bloecke mit IF6 aus: identisch, Hooks {d.r32(MT + 0x6C) - hc0}x ohne Wirkung aufgerufen")
 
-    print("2. Enumeration und IF5")
+    print("2. Enumeration und IF6")
     rig = Rig(img, stub, snm); rig.nm = nm
     dev = rig.dev
     dev.call(nm["usbinit_hook"])
     check(dev.r32(MT) == 0x4D54A015, "Multitrack-Zustand initialisiert")
+    # 049: Standard ist Stereo → Audio Out = Stereo + Multi (Win) waehlen (getrennt, IF6; echter um_poll, Neuanmeldung wie am Geraet)
+    UMA, MILLIS = 0x1FFFD300, 0x20000D7C
+    dev.w32(UMA + 0x48, 0x7FFFFFFF)                     # usbaudio.cfg nicht lesen (keine SD im Emulator)
+    dev.w32(UMA + 4, 4)
+    for ms in (10000, 10450): dev.w32(MILLIS, ms); dev.call(nm["um_poll"] | 1)
+    check(bytes(dev.uc.mem_read(0x1FFF1E9C, 2)) == b"\x84\x02", "049: nach Umschalten auf Stereo + Multi (Win) bcdDevice 0x0284")
     dev.bus_reset()
-    desc = bytes(img[nm["ua_cfg_desc"]:nm["ua_cfg_desc"] + 365])
+    desc = bytes(img[nm["ua_cfg_desc"]:nm["ua_cfg_desc"] + 390])
     cd = dev.control(setup(0x80, 6, 0x0200, 0, 0xFFFF))
     check(cd == desc, f"Config-Deskriptor {len(cd) if cd else 0} Byte")
     dev.control(setup(0x00, 5, 9, 0, 0)); dev.control(setup(0x00, 9, 1, 0, 0))
     check(dev.hw.endpt(7) == 0x19, "ENDPT7 nach SET_CONFIGURATION wie Original (0x19)")
-    check(dev.control(setup(0x81, 0x0A, 0, 5, 1)) == b"\x00", "GET_INTERFACE IF5 → 0")
-    check(dev.control(setup(0x01, 0x0B, 3, 5, 0)) is None, "SET_INTERFACE IF5 alt 3 → STALL")
-    check(dev.control(setup(0x01, 0x0B, 1, 5, 0)) == b"", "SET_INTERFACE IF5 alt 1")
+    check(dev.control(setup(0x81, 0x0A, 0, 6, 1)) == b"\x00", "GET_INTERFACE IF6 → 0")
+    check(dev.control(setup(0x81, 0x0A, 0, 5, 1)) == b"\x00" and dev.control(setup(0x01, 0x0B, 0, 5, 0)) == b"" and dev.control(setup(0x01, 0x0B, 1, 5, 0)) is None, "049: AC IF5 der Multitrack-Funktion: GET 0, Alt 0 ok, Alt 1 STALL")
+    check(dev.control(setup(0x01, 0x0B, 3, 6, 0)) is None, "SET_INTERFACE IF6 alt 3 → STALL")
+    check(dev.control(setup(0x01, 0x0B, 1, 6, 0)) == b"", "SET_INTERFACE IF6 alt 1")
     check(dev.hw.endpt(7) == 0x14, f"ENDPT7 = 0x{dev.hw.endpt(7):02x}")
-    check(dev.control(setup(0x81, 0x0A, 0, 5, 1)) == b"\x01", "GET_INTERFACE IF5 → 1")
+    check(dev.control(setup(0x81, 0x0A, 0, 6, 1)) == b"\x01", "GET_INTERFACE IF6 → 1")
     check(dev.control(setup(0xA2, 0x81, 0x0100, 0x87, 3)) == bytes.fromhex("44ac00"), "GET_CUR Rate EP 0x87")
 
     print("3. Streaming 10 Kanaele, Preset A → B waehrend des Streamings, Stereo parallel")
@@ -282,7 +289,7 @@ def main():
 
     print("4. Wechsel auf 11 Kanaele (Preset B), Spur-Lautstaerke aus")
     dev.uc.mem_write(CFG + 5, bytes([0]))
-    check(dev.control(setup(0x01, 0x0B, 2, 5, 0)) == b"", "SET_INTERFACE IF5 alt 2")
+    check(dev.control(setup(0x01, 0x0B, 2, 6, 0)) == b"", "SET_INTERFACE IF6 alt 2")
     for _ in range(4): dev.token(7, 1, 0x9)            # alte (leere) Baenke abholen
     shared = {}
     stream(rig, 2, lambda f0: PB11, 120, label="Alt 2", blocks=shared)
@@ -298,13 +305,13 @@ def main():
           f"10 Hook-Aufrufe ohne Wirkung (hook_calls {hc0}→{dev.r32(MT + 0x6C)}), Ring unveraendert")
 
     print("6. Stopp und Neukonfiguration")
-    check(dev.control(setup(0x01, 0x0B, 0, 5, 0)) == b"", "SET_INTERFACE IF5 alt 0")
+    check(dev.control(setup(0x01, 0x0B, 0, 6, 0)) == b"", "SET_INTERFACE IF6 alt 0")
     check(dev.token(7, 1, 0x9) is None, "nach Stopp NAK auf EP7")
-    dev.control(setup(0x01, 0x0B, 1, 5, 0))
+    dev.control(setup(0x01, 0x0B, 1, 6, 0))
     dev.control(setup(0x00, 9, 1, 0, 0))
     bm = dev.r32(0x1FFF1DD0)
     check(bin(bm >> 2).count("1") == 24, f"Paket-Pool nach SET_CONFIGURATION 24/30 frei (Bitmap 0x{bm:08x})")
-    check(dev.control(setup(0x81, 0x0A, 0, 5, 1)) == b"\x00", "nach SET_CONFIGURATION GET_INTERFACE IF5 → 0")
+    check(dev.control(setup(0x81, 0x0A, 0, 6, 1)) == b"\x00", "nach SET_CONFIGURATION GET_INTERFACE IF6 → 0")
     print(f"{checks} Pruefungen, {fails} Fehler")
     sys.exit(1 if fails else 0)
 

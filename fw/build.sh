@@ -63,8 +63,8 @@ done
 
 # ---- Patch 012: USB-Audio (Deskriptor in 015 laenger und an anderer RAM-Adresse) ----
 TAP=$(printf '%x' $((0x$(sym audio_tap)|1))); UINIT=$(sym usbinit_hook); EPH=$(sym ep_hook); SETH=$(sym setup_hook)
-DESC_LEN=365
-DESC_RAM=1fffd4c0
+DESC_LEN=390                          # 049: 365 → 390
+DESC_RAM=1fffd4a0                     # 049: D4C0 → D4A0
 expect bd58 19ba0000                  # setup(): Literal audio_callback 0xBA19 → audio_tap
 expect 13810 fff78afe                 # _init_Teensyduino_internal_: bl usb_init 0x13528 → usbinit_hook
 expect 12bac b24d9e08                 # usbotg_isr: ldr r5,=BDT; lsrs r6,r3,#2 (Token EP != 0) → bl ep_hook

@@ -4,7 +4,7 @@
      vtable-Methoden der Auswahl-Eintraege (Text des Werts, Anzahl, Wert setzen, Listenaufbau), gespeicherter
      std::function-Invoker → um_changed.
   B) Umschalten "Audio Out": um_poll trennt (USB0_CONTROL), kopiert die Variante, ECHTER usbotg_isr liefert nach
-     Bus-Reset GET_DESCRIPTOR(Konfiguration) mit 365 / 248 / 149 Byte aus der RAM-Deskriptorliste.
+     Bus-Reset GET_DESCRIPTOR(Konfiguration) mit 390 / 248 / 149 Byte aus der RAM-Deskriptorliste.
   C) Multitrack-Preset/Fader → mt_cfg_t, Classic/Creative → Namenspuffer (die Perform-Eintraege zeigen dorthin).
 Heap_alloc/Heap_free (0x56F5C/0x56F6C) werden durch einen einfachen Bump-Allokator ersetzt; FatFs wird nicht
 beruehrt (Datei-Lesen per t_load in die Zukunft verschoben).
@@ -13,7 +13,7 @@ beruehrt (Datei-Lesen per t_load in die Zukunft verschoben).
 
 usage: emu_menu.py PolyendPlay_v1.6.0_mod.ppf
 """
-import sys, struct, os
+import re, sys, struct, os
 from unicorn import UC_HOOK_CODE
 from unicorn.arm_const import UC_ARM_REG_R0, UC_ARM_REG_LR, UC_ARM_REG_PC, UC_ARM_REG_SP
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -60,14 +60,16 @@ def main():
     print("Start: usbinit_hook (um_early_init + ua_init + mt_init + usb_init)")
     dev.call(nm["usbinit_hook"])
     check(dev.r32(UM) == 0x55AEC017, "um_t initialisiert (magic)")
-    check([dev.r32(UM + 4 + 4 * k) for k in range(4)] == [2, 0, 1, 1], "Standardwerte 2/0/1/1")
-    check(dev.r32(UM + 0x70 + 12 + 4) == 0x1FFFD4C0 and (dev.r32(UM + 0x70 + 12 + 8) & 0xFFFF) == 365, "RAM-Deskriptorliste: Eintrag 1 = 0x1FFFD4C0 / 365")
+    check([dev.r32(UM + 4 + 4 * k) for k in range(4)] == [1, 0, 1, 1], "Standardwerte 1/0/1/1 (049: Stereo)")
+    check(dev.r32(UM + 0x70 + 12 + 4) == 0x1FFFD4A0 and (dev.r32(UM + 0x70 + 12 + 8) & 0xFFFF) == 248, "RAM-Deskriptorliste: Eintrag 1 = 0x1FFFD4A0 / 248 (049: Start mit Stereo)")
     check(struct.unpack("<I", img[0x131AC:0x131B0])[0] == UM + 0x70, "Literal 0x131AC zeigt auf die RAM-Liste")
     dly0 = struct.unpack("<I", img[0xA86B4 + 8:0xA86B4 + 12])[0]; rvb15 = struct.unpack("<I", img[0xA8E34 + 20 * 15 + 8:0xA8E34 + 20 * 15 + 12])[0]
     check(dly0 == NAMES and rvb15 == NAMES + 16 * 31, "Namenszeiger Delay 0 / Reverb 15 → RAM-Puffer")
     check(cstr(dev, dly0) == "Echo 1/16" and cstr(dev, rvb15) == "Reso S&H", f"Creative-Namen im Puffer: {cstr(dev, dly0)!r}, {cstr(dev, rvb15)!r}")
 
-    print("Enumeration (Stereo + Multi)")
+    st_desc = open(os.path.join(here, "fixtures/desc_stereo.bin"), "rb").read()
+    st_desc = bytearray(st_desc[:149] + bytes([8, 0x0B, 3, 2, 1, 1, 0, 0]) + st_desc[149:]); st_desc[2] = len(st_desc); st_desc = bytes(st_desc)   # 046: + IAD Audio
+    print("Enumeration (049: Standard Stereo)")
     def get_cfg():
         dev.bus_reset()
         h = dev.control(setup(0x80, 6, 0x0200, 0, 9))
@@ -75,8 +77,9 @@ def main():
         w255 = dev.control(setup(0x80, 6, 0x0200, 0, 255))
         return h, full, w255
     h, full, _ = get_cfg()
-    desc365 = bytes(img[nm["ua_cfg_desc"]:nm["ua_cfg_desc"] + 365])
-    check(h[2] | h[3] << 8 == 365 and full == desc365, f"Config {len(full)} Byte = ua_cfg_desc")
+    desc365 = bytes(img[nm["ua_cfg_desc"]:nm["ua_cfg_desc"] + 390])   # 049: 390 B
+    check(h[2] | h[3] << 8 == 248 and full == st_desc, f"Config {len(full)} Byte = Stereo-Deskriptor")
+    check(bytes(uc.mem_read(0x1FFF1E9C, 2)) == b"\x81\x02", "049: bcdDevice 0x0281 beim Start")
 
     print("A) Menue mit dem echten Firmware-Code")
     def page(it):
@@ -114,7 +117,7 @@ def main():
     check(inames == ["Audio Out", "Multitrack 9/10", "Track Level", "FX Mode", "Rec", "Wait For Signal", "Pause On Silence", "Audio In"], f"Seite USB Audio: {inames}")
     check(dev.r32(items[7]) == 0xA4928 and dev.r32(items[7] + 0x44) == nm["ui_in_build"] | 1 and dev.r32(items[7] + 4) == usb, "046: Audio In = Unterseite von USB Audio → ui_in_build")
     items = items[:7]
-    exp = [(UM + 4, 3, ["Off", "Stereo", "Stereo + Multi", "Stereo + In"]), (UM + 8, 1, ["Master", "FX Return"]),
+    exp = [(UM + 4, 4, ["Off", "Stereo", "Stereo + Multi", "Stereo + In", "Stereo+Multi (Win)"]), (UM + 8, 1, ["Master", "FX Return"]),   # 049: + Win
            (UM + 12, 1, ["Pre Fader", "Post Fader"]), (UM + 16, 1, ["Classic", "Creative"]),
            (UM + 0xDC, 1, ["Mono", "Stereo"]),   # 026: Rec Mono/Stereo
            (0x1FFF9A44, 1, ["Off", "On"]), (0x1FFF9A48, 1, ["Off", "On"])]   # 045 (11.11.): Wait For Signal / Pause On Silence
@@ -140,10 +143,10 @@ def main():
     print("B) Audio Out umschalten (Neuanmeldung, echter usbotg_isr)")
     dev.w32(UM + 0x48, 0x7FFFFFFF)                                  # Datei nicht lesen (keine SD im Emulator)
     def poll_at(ms): dev.w32(MILLIS, ms); dev.call(nm["um_poll"] | 1)
-    st_desc = open(os.path.join(here, "fixtures/desc_stereo.bin"), "rb").read()
-    st_desc = bytearray(st_desc[:149] + bytes([8, 0x0B, 3, 2, 1, 1, 0, 0]) + st_desc[149:]); st_desc[2] = len(st_desc); st_desc = bytes(st_desc)   # 046: + IAD Audio
     t = 10000
-    for mode, ln, ref, nif in ((1, 248, st_desc, 5), (0, 149, None, 3), (2, 365, desc365, 6)):
+    import hashlib
+    COMB_MD5 = "bdc96f9abfc5d798fc0367592559c489"     # 049: kombinierter Deskriptor = 046 (am Mac bewaehrt), zur Laufzeit erzeugt
+    for mode, ln, ref, nif in ((2, 365, "md5", 6), (4, 390, desc365, 7), (0, 149, None, 3), (3, 331, None, 6), (1, 248, st_desc, 5)):   # 049: Start ist Stereo
         dev.w32(UM + 4, mode)
         poll_at(t)
         detached = dev.hw.r[0x108] == 0 and uc.mem_read(0x20000D67, 1)[0] == 0
@@ -151,14 +154,18 @@ def main():
         poll_at(t + 450); attached = dev.hw.r[0x108] == 0x10
         h, full, w255 = get_cfg()
         ok = detached and still and attached and h is not None and (h[2] | h[3] << 8) == ln and h[4] == nif and len(full) == ln
-        if ref is not None: ok &= full == ref
-        else: ok &= full[9:] == desc365[9:149] and full[:2] == b"\x09\x02"
+        if ref == "md5": ok &= full is not None and hashlib.md5(full).hexdigest() == COMB_MD5
+        elif ref is not None: ok &= full == ref
+        elif mode == 0: ok &= full[9:] == desc365[9:149] and full[:2] == b"\x09\x02"
+        else: ok &= full is not None and full[:2] == b"\x09\x02"
+        ok &= bytes(uc.mem_read(0x1FFF1E9C, 2)) == bytes([(0x77, 0x81, 0x82, 0x83, 0x84)[mode], 0x02])   # 049: bcdDevice je Modus
+        ok &= dev.r32(0x1FFFD47C) == (0 if mode == 2 else 1)                                         # 049: mt_t.split
         ok &= w255 == full[:255]
         check(ok, f"Audio Out={mode}: getrennt→verbunden, GET_DESCRIPTOR {len(full) if full else 0} Byte, {h[4] if h else '-'} Interfaces, wLength 255 → {len(w255) if w255 else 0}")
         dev.control(setup(0x00, 5, 7, 0, 0)); dev.control(setup(0x00, 9, 1, 0, 0))
         check(uc.mem_read(0x20000D67, 1)[0] == 1, f"  SET_CONFIGURATION danach ok")
         t += 1000
-    check(dev.r32(UM + 0x58) == 3, "3 Neuanmeldungen gezaehlt")
+    check(dev.r32(UM + 0x58) == 5, "5 Neuanmeldungen gezaehlt")
 
     print("C) Multitrack und Classic/Creative")
     dev.w32(UM + 8, 1); dev.w32(UM + 12, 0); poll_at(t)
@@ -224,7 +231,8 @@ def main():
     nb, ne = dev.r32(about + 0x34), dev.r32(about + 0x38)
     inames = [cstr(dev, dev.r32(nb + 4 * i)) for i in range((ne - nb) // 4)]
     check(inames == ["Version", "Build", "Based On", "Hardware"], f"Zeilen: {inames}")
-    want = ["0.2.0-beta", "%08x" % crc, "Play 1.6.0", "Rev A"]
+    VER = re.search(r'ENVYU_VERSION "([^"]+)"', open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "version.h")).read()).group(1)   # 049: aus version.h
+    want = [VER, "%08x" % crc, "Play 1.6.0", "Rev A"]
     got = []; ok = True
     for k, it in enumerate(items):
         vt = dev.r32(it)

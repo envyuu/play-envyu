@@ -22,7 +22,7 @@ static int usb_init_called;
 void host_usb_init(void) { usb_init_called++; }
 
 /* aus usbaudio.c */
-#define CFG_LEN 365
+#define CFG_LEN 390   /* 049 */
 extern const uint8_t ua_cfg_desc[CFG_LEN];
 void ua_init(void);
 void ua_push(const int16_t *l, const int16_t *r, uint32_t n);
@@ -62,7 +62,7 @@ static void test_setup(void) {
     CHECK(ua_setup() == 0, "vor ua_init darf nichts beantwortet werden");
     usbinit_hook();
     CHECK(usb_init_called == 1, "usb_init nicht aufgerufen");
-    CHECK(memcmp(host_ram + 0x14C0, ua_cfg_desc, CFG_LEN) == 0, "Deskriptor nicht ins RAM kopiert");
+    CHECK(memcmp(host_ram + 0x14A0, ua_cfg_desc, CFG_LEN) == 0, "Deskriptor nicht ins RAM kopiert");
     CHECK(U->magic == 0x55A0D10Au && U->state == 0 && U->head == 0 && U->tail == 0, "Zustand nicht initialisiert");
 
     /* GET_INTERFACE AS → 0 */

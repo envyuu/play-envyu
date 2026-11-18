@@ -140,11 +140,14 @@ def main():
     ac = [(k, v) for k, v in ifs.items() if v["d"][5] == 1 and v["d"][6] == 1]
     ms = [(k, v) for k, v in ifs.items() if v["d"][5] == 1 and v["d"][6] == 3]
     asx = [(k, v) for k, v in ifs.items() if v["d"][5] == 1 and v["d"][6] == 2]
-    if len(ac) != 1: err(f"{len(ac)} AudioControl-Interfaces (erwartet 1)")
-    terms = {}
-    usb_terms = set()
-    if ac:
-        (acn, acalt), v = ac[0]
+    # 049: mehrere Audio-Funktionen (je ein AC-Interface mit eigener Sammlung und eigenen Entity-IDs) erlaubt
+    if not ac and asx: err("AS-Interfaces ohne AudioControl-Interface")
+    ctx = {}                       # AS-Interfacenummer -> (terms, usb_terms) ihrer Audio-Funktion
+    as_owner = {}
+    for (acn, acalt), v in sorted(ac):
+        terms = {}
+        usb_terms = set()
+        coll = []
         if v["d"][4] not in (0, 1): err("AC-Interface: 0 oder 1 Endpunkt (Interrupt) erlaubt")
         cs = v["cs"]
         if not cs or cs[0][1][2] != 0x01: err("AC: erster CS-Deskriptor muss HEADER sein")
@@ -159,8 +162,9 @@ def main():
             for i in coll:
                 if not any(k[0] == i and x["d"][5] == 1 and x["d"][6] in (2, 3) for k, x in ifs.items()):
                     err(f"AC-Header listet Interface {i}, das kein AS/MS-Interface ist")
-            for (k, x) in asx:
-                if k[0] not in coll: err(f"AS-Interface {k[0]} fehlt in baInterfaceNr")
+            for i in coll:
+                if i in as_owner and as_owner[i] != acn: err(f"Interface {i} in zwei AC-Sammlungen")
+                as_owner[i] = acn
             ok(f"AC-Header: bcdADC 1.00, wTotalLength {tot}, Sammlung {coll}")
         for p, b in cs[1:]:
             st = b[2]
@@ -183,6 +187,10 @@ def main():
         for tid, (st, b) in terms.items():
             if st == 0x03 and u16(b, 4) == 0x0101 and b[7] in terms and terms[b[7]][0] == 0x02 and u16(terms[b[7]][1], 4) == 0x0101:
                 err(f"OT {tid}: USB-Streaming → USB-Streaming")
+        for i in coll: ctx[i] = (terms, usb_terms)
+    for (k, x) in asx:
+        if k[0] not in as_owner: err(f"AS-Interface {k[0]} fehlt in baInterfaceNr")
+    if len(ac) > 1: ok(f"{len(ac)} Audio-Funktionen (AC-Interfaces {sorted(k[0] for k, _ in ac)})")
 
     for (n, alt), v in sorted(asx):
         if alt == 0:
@@ -194,6 +202,7 @@ def main():
         if len(gen) != 1 or len(gen[0]) != 7: err(f"AS {n}/{alt}: AS_GENERAL fehlt/falsch"); continue
         g = gen[0]
         link = g[3]
+        terms, usb_terms = ctx.get(n, ({}, set()))
         if link not in usb_terms: err(f"AS {n}/{alt}: bTerminalLink {link} ist kein USB-Streaming-Terminal")
         if u16(g, 5) != 0x0001: notes.append(f"AS {n}/{alt}: wFormatTag 0x{u16(g,5):04x}")
         if len(fmt) != 1: err(f"AS {n}/{alt}: FORMAT_TYPE fehlt"); continue

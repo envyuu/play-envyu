@@ -245,7 +245,7 @@ function usbRow(i) {
   usbUi.sel = i; renderUsb();
 }
 function renderUsb() {
-  const out = $('usbOut').value, multi = out === 'multi';
+  const out = $('usbOut').value, multi = out === 'multi' || out === 'win';
   $('usbPresetL').hidden = !multi; $('usbFaderL').hidden = !multi; $('usb11L').hidden = !multi;
   const ch = (a, b, hot) => el('div', { className: 'ch' + (hot ? ' hot' : '') }, el('span', { textContent: a }), el('b', { textContent: b }));
   const col = (title, ...items) => el('div', {}, el('h4', { textContent: title }), el('div', { className: 'chs' }, ...items));
@@ -262,7 +262,7 @@ function renderUsb() {
     rows.push(ch('Ch 9', a + ' L', 1), ch('Ch 10', a + ' R', 1));
     if (eleven) rows.push(ch('Ch 11', (fxr ? 'Master' : 'FX Return') + ' mono', 1));
     flow.replaceChildren(col('Play', el('div', { className: 'ch' }, el('span', { textContent: 'Tracks 1–8' }), el('b', { textContent: fader ? 'with track volume' : 'without track volume' })), ch(a, 'stereo', 1)), arrow('→'), col('Computer input', ...rows));
-    text = `${eleven ? 11 : 10} channels to your DAW, plus a separate stereo device.` + (fxr ? ' Tracks stay dry, with wet effects on channels 9 and 10: useful for mixing in the box.' : ' Loop and limiter exist only in the master.');
+    text = `${eleven ? 11 : 10} channels to your DAW` + (out === 'win' ? ', as two separate audio devices: stereo and multitrack. Meant for Windows: stereo keeps working even if Windows rejects the multitrack part.' : ', plus the stereo master, all on one audio device.') + (fxr ? ' Tracks stay dry, with wet effects on channels 9 and 10: useful for mixing in the box.' : ' Loop and limiter exist only in the master.');
     title += ` · ${eleven ? 11 : 10} channels`;
   }
   const ui = usbUi.rows[usbUi.sel];

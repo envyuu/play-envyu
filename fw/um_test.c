@@ -7,6 +7,7 @@
 
 typedef struct { uint32_t store[2]; uint32_t manager; uint32_t invoker; } stdfn_t;
 void um_early_init(void);
+void um_boot_desc(void);
 void um_poll(void);
 void um_build(void *menu, void *parent);
 void *um_menu_hook(void *item, void *parent, const char *name, uint32_t fn, uint32_t adj);
@@ -17,14 +18,15 @@ uint8_t host_um_ram[0x100];
 int um_rec_wait(void); int um_rec_pause(void);
 uint8_t host_rs_ram[0x20];          /* 045: Wait For Signal / Pause On Silence */
 uint8_t host_names_ram[32 * 16];
-uint8_t host_desc_ram[365];
-uint8_t host_mtcfg[0x40];
+uint8_t host_desc_ram[390];
+uint8_t host_mtcfg[0x20];
+uint8_t host_dev_desc[18];
 uint8_t host_flash_list[0x6C];
 volatile uint8_t host_usb0_control = 0x10, host_usb_configuration = 1;
 uint32_t host_millis = 0;
 
 /* Deskriptor "Stereo + Multi" (Platzhalter mit echtem Kopf; Inhalt egal, verglichen wird byteweise) */
-uint8_t ua_cfg_desc[365];
+uint8_t ua_cfg_desc[390];
 static const char *ON[32], *CN[32];
 const char *FX_NAMES[32];
 const char *const host_orig_names[32] = {
@@ -36,6 +38,7 @@ const char *const host_orig_names[32] = {
 static int ua_stops = 0, mt_stops = 0, arp_calls = 0, arp_last = -1;
 void ua_force_stop(void) { ua_stops++; }
 void mt_force_stop(void) { mt_stops++; }
+static uint32_t mt_split = 99; void mt_set_split(uint32_t v) { mt_split = v; }   /* 049 */
 void arp_set_creative(int on) { arp_calls++; arp_last = on; }
 
 /* ---- Menue-Attrappen ---- */
@@ -97,7 +100,8 @@ static void boot(void) {
     host_millis = 0; nenum = nmenu = 0; arp_calls = 0; arp_last = -1; ua_stops = mt_stops = 0;
     host_usb0_control = 0; um_early_init(); host_usb0_control = 0x10;   /* usb_init setzt den Pullup */
     uint32_t mg = 0x4D544346u; memcpy(host_mtcfg, &mg, 4); host_mtcfg[4] = 0; host_mtcfg[5] = 1;   /* mt_init */
-    memcpy(host_desc_ram, ua_cfg_desc, 365);                     /* ua_init */
+    memcpy(host_desc_ram, ua_cfg_desc, 390);                     /* ua_init */
+    um_boot_desc();                                              /* 049: Standard Stereo */
 }
 static int names_are(const char *const *t) {
     for (int i = 0; i < 32; i++) if (strncmp((char *)host_names_ram + 16 * i, t[i], 16) != 0 || host_names_ram[16 * i + 15] != 0) return 0;
@@ -115,20 +119,22 @@ void ui_set_send(uint32_t which, int32_t q16) { if (which < 2u) sends[which] = q
 int main(int argc, char **argv) {
     setvbuf(stdout, 0, _IONBF, 0);
     srand(argc > 1 ? (unsigned)atoi(argv[1]) : 7u);
-    for (int i = 0; i < 365; i++) ua_cfg_desc[i] = (uint8_t)(i * 7 + 3);
-    ua_cfg_desc[0] = 9; ua_cfg_desc[1] = 2; ua_cfg_desc[2] = 365 & 0xFF; ua_cfg_desc[3] = 365 >> 8; ua_cfg_desc[4] = 6;
+    for (int i = 0; i < 390; i++) ua_cfg_desc[i] = (uint8_t)(i * 7 + 3);
+    ua_cfg_desc[0] = 9; ua_cfg_desc[1] = 2; ua_cfg_desc[2] = 390 & 0xFF; ua_cfg_desc[3] = 390 >> 8; ua_cfg_desc[4] = 7;
     static char cn[32][20];
     for (int i = 0; i < 32; i++) { snprintf(cn[i], sizeof cn[i], "FX Name %02d", i); FX_NAMES[i] = cn[i]; CN[i] = cn[i]; ON[i] = host_orig_names[i]; }
-    /* Flash-Liste wie im gepatchten Image: Eintrag 1 = {0x0200, 0, 0x1FFFD4C0, 365} */
+    /* Flash-Liste wie im gepatchten Image: Eintrag 1 = {0x0200, 0, 0x1FFFD4A0, 390} (049) */
     memset(host_flash_list, 0, sizeof host_flash_list);
-    host_flash_list[12 + 1] = 0x02; uint32_t a = 0x1FFFD4C0u; memcpy(host_flash_list + 12 + 4, &a, 4);
-    host_flash_list[12 + 8] = 365 & 0xFF; host_flash_list[12 + 9] = 365 >> 8;
+    host_flash_list[12 + 1] = 0x02; uint32_t a = 0x1FFFD4A0u; memcpy(host_flash_list + 12 + 4, &a, 4);
+    host_flash_list[12 + 8] = 390 & 0xFF; host_flash_list[12 + 9] = 390 >> 8;
 
     printf("== 1) Frueh-Init\n");
     boot();
-    check("Magic, Standardwerte 2/0/1/1", U32(0) == 0x55AEC017u && V(0) == 2 && V(1) == 0 && V(2) == 1 && V(3) == 1);
+    check("Magic, Standardwerte 1/0/1/1 (049: Stereo)", U32(0) == 0x55AEC017u && V(0) == 1 && V(1) == 0 && V(2) == 1 && V(3) == 1);
     check("creative-Wert liegt bei +0x10 (fx.c/arp.c lesen 0x1FFFD310)", V(3) == 1 && host_um_ram[0x10] == 1);
-    check("Deskriptorliste kopiert, Laenge 365", memcmp(host_um_ram + 0x70, host_flash_list, 0x6C) == 0 && list_len() == 365);
+    check("Deskriptorliste kopiert (bis auf die Laenge)", memcmp(host_um_ram + 0x70, host_flash_list, 12 + 8) == 0 && memcmp(host_um_ram + 0x70 + 22, host_flash_list + 22, 0x6C - 22) == 0);
+    check("049: Start mit Stereo-Deskriptor (248 B, 5 Interfaces)", list_len() == 248 && host_desc_ram[2] == 248 && host_desc_ram[4] == 5);
+    check("049: bcdDevice beim Start 0x0281 (Stereo)", host_dev_desc[12] == 0x81 && host_dev_desc[13] == 0x02);
     check("Effektnamen = FX-Suite (Creative), nullterminiert", names_are(CN));
 
     printf("== 2) Menue\n");
@@ -154,7 +160,7 @@ int main(int argc, char **argv) {
           && enums[5].max == 1 && enums[6].max == 1 && strcmp(enums[5].tab[1], "On") == 0 && strcmp(enums[6].tab[0], "Off") == 0
           && *enums[5].val == 1 && *enums[6].val == 1 && um_rec_wait() == 1 && um_rec_pause() == 1);
     const char *nm[4] = { "Audio Out", "Multitrack 9/10", "Track Level", "FX Mode" };
-    uint32_t mx[4] = { 3, 1, 1, 1 };                       /* 020: Audio Out + "Stereo + In" */
+    uint32_t mx[4] = { 4, 1, 1, 1 };                       /* 020: Audio Out + "Stereo + In"; 049: + "Stereo+Multi (Win)" */
     int ok = 1;
     for (int k = 0; k < 4 && k < nenum; k++) {
         ok &= strcmp(enums[k].name, nm[k]) == 0 && enums[k].val == (int32_t *)(void *)(host_um_ram + 4 + 4 * k) && enums[k].max == mx[k]
@@ -209,7 +215,7 @@ int main(int argc, char **argv) {
     run_ms(1000); check("1 s nach letzter Aenderung: noch nicht gespeichert", file_len == -1);
     run_ms(600);
     file_buf[file_len > 0 ? file_len : 0] = 0;
-    check("gespeichert: usb=2 mt=1 fader=0 creative=0", file_len > 0 && strstr(file_buf, "\nusb=2\nmt=1\nfader=0\ncreative=0\n"));
+    check("gespeichert: usb=1 mt=1 fader=0 creative=0 (049: Standard Stereo)", file_len > 0 && strstr(file_buf, "\nusb=1\nmt=1\nfader=0\ncreative=0\n"));
     int w0 = writes; run_ms(5000); check("kein weiteres Schreiben ohne Aenderung", writes == w0 && mallocs == 0 && opens == 0);
 
     printf("== 5) Neustart mit Datei, SD erst nach 3 s bereit\n");
@@ -221,40 +227,50 @@ int main(int argc, char **argv) {
 
     printf("== 6) Audio Out: Neuanmeldung\n");
     int r0 = ua_stops;
-    *enums[0].val = 1; run_ms(1);
-    check("Stereo: sofort getrennt (Pullup aus, unkonfiguriert, Streams gestoppt)", host_usb0_control == 0 && host_usb_configuration == 0 && ua_stops == r0 + 1 && mt_stops >= 1);
+    /* 049: Start ist Stereo (Standard) → erst Stereo + Multi, dann Off, dann Stereo */
+    *enums[0].val = 2; run_ms(1);
+    check("Stereo + Multi: sofort getrennt (Pullup aus, unkonfiguriert, Streams gestoppt)", host_usb0_control == 0 && host_usb_configuration == 0 && ua_stops == r0 + 1 && mt_stops >= 1);
     run_ms(300); check("nach 300 ms noch getrennt", host_usb0_control == 0);
     run_ms(150);
-    check("nach 400 ms: Pullup an, Laenge 248", host_usb0_control == 0x10 && list_len() == 248);
-    check("Stereo-Deskriptor im RAM: Kopf 248 B / 5 Interfaces", host_desc_ram[0] == 9 && host_desc_ram[2] == 248 && host_desc_ram[3] == 0 && host_desc_ram[4] == 5);
+    check("049: Stereo + Multi kombiniert: 365 B, 6 Interfaces, Kopf..AC-IF3 aus ua_cfg_desc, mt kombiniert", list_len() == 365 && host_desc_ram[2] == 0x6D && host_desc_ram[3] == 1
+          && host_desc_ram[4] == 6 && memcmp(host_desc_ram + 5, ua_cfg_desc + 5, 147) == 0 && host_desc_ram[152] == 3 && host_desc_ram[166] == 0x0A
+          && memcmp(host_desc_ram + 176, ua_cfg_desc + 175, 21) == 0 && memcmp(host_desc_ram + 197, ua_cfg_desc + 274, 21) == 0
+          && memcmp(host_desc_ram + 218, ua_cfg_desc + 196, 52) == 0 && host_usb0_control == 0x10 && mt_split == 0);
+    check("049: bcdDevice Stereo + Multi = 0x0282", host_dev_desc[12] == 0x82 && host_dev_desc[13] == 0x02);
+    *enums[0].val = 4; run_ms(500);
+    check("049: Stereo + Multi (Win): 390 B = ua_cfg_desc, mt getrennt, bcdDevice 0x0284", list_len() == 390 && memcmp(host_desc_ram, ua_cfg_desc, 390) == 0
+          && host_usb0_control == 0x10 && mt_split == 1 && host_dev_desc[12] == 0x84 && host_dev_desc[13] == 0x02);
     *enums[0].val = 0; run_ms(500);
     check("Off: Laenge 149, Kopf 149 B / 3 Interfaces, Rest = ua_cfg_desc", list_len() == 149 && host_desc_ram[2] == 149 && host_desc_ram[3] == 0 && host_desc_ram[4] == 3
           && memcmp(host_desc_ram + 5, ua_cfg_desc + 5, 144) == 0);
-    *enums[0].val = 2; run_ms(500);
-    check("Stereo + Multi: 365 B, identisch mit ua_cfg_desc", list_len() == 365 && memcmp(host_desc_ram, ua_cfg_desc, 365) == 0 && host_usb0_control == 0x10);
-    check("Zaehler Neuanmeldungen = 3", U32(0x58) == 3);
-    *enums[0].val = 1; run_ms(100); *enums[0].val = 2; run_ms(500);
-    check("Wechsel waehrend getrennt: endet beim letzten Wert", list_len() == 365 && host_usb0_control == 0x10 && U32(0x58) == 4);
-    *enums[0].val = 1; run_ms(2000);
-    file_buf[file_len] = 0; check("gespeichert usb=1", strstr(file_buf, "usb=1\n") != 0);
+    check("049: bcdDevice Off = 0x0277 (Original)", host_dev_desc[12] == 0x77 && host_dev_desc[13] == 0x02);
+    *enums[0].val = 1; run_ms(500);
+    check("nach 400 ms: Pullup an, Laenge 248", host_usb0_control == 0x10 && list_len() == 248);
+    check("Stereo-Deskriptor im RAM: Kopf 248 B / 5 Interfaces", host_desc_ram[0] == 9 && host_desc_ram[2] == 248 && host_desc_ram[3] == 0 && host_desc_ram[4] == 5);
+    check("049: bcdDevice Stereo = 0x0281", host_dev_desc[12] == 0x81 && host_dev_desc[13] == 0x02);
+    check("Zaehler Neuanmeldungen = 4", U32(0x58) == 4);
+    *enums[0].val = 2; run_ms(100); *enums[0].val = 1; run_ms(500);
+    check("Wechsel waehrend getrennt: endet beim letzten Wert", list_len() == 248 && host_usb0_control == 0x10 && U32(0x58) == 5);
+    *enums[0].val = 2; run_ms(2000);
+    file_buf[file_len] = 0; check("gespeichert usb=2", strstr(file_buf, "usb=2\n") != 0);
     boot(); sd_ready_at = 0; run_ms(1500);
-    check("Neustart mit usb=1: Neuanmeldung auf Stereo", list_len() == 248 && host_usb0_control == 0x10 && U32(0x58) == 1);
+    check("Neustart mit usb=2: Neuanmeldung auf Stereo + Multi (049: Start war Stereo)", list_len() == 365 && host_usb0_control == 0x10 && U32(0x58) == 1 && host_dev_desc[12] == 0x82);
 
     printf("== 7) Kaputte / fremde Datei\n");
     const char *bad[] = { "usb=7\nmt=9\nfader=x\ncreative=1", "garbage\n\n=\nusb=\n=1\nusb=0001\n", "usb=0\r\nmt=1\r\n#creative=0\r\n",
                           "creative=0", "", "usbx=1\nmtt=1\nu=1\n" };
-    int exp[][4] = { {2,0,1,1}, {2,0,1,1}, {0,1,1,1}, {2,0,1,0}, {2,0,1,1}, {2,0,1,1} };
+    int exp[][4] = { {1,0,1,1}, {1,0,1,1}, {0,1,1,1}, {1,0,1,0}, {1,0,1,1}, {1,0,1,1} };   /* 049: Standard usb=1 */
     for (int t = 0; t < 6; t++) {
         file_len = (int)strlen(bad[t]); memcpy(file_buf, bad[t], (size_t)file_len);
         boot(); run_ms(1200);
         char what[80]; snprintf(what, sizeof what, "Datei %d → %d/%d/%d/%d", t, exp[t][0], exp[t][1], exp[t][2], exp[t][3]);
         check(what, V(0) == exp[t][0] && V(1) == exp[t][1] && V(2) == exp[t][2] && V(3) == exp[t][3]);
     }
-    file_len = 300; memset(file_buf, 'a', 300); boot(); run_ms(1200); check("zu lange Datei: nur 255 B gelesen, Standard", V(0) == 2 && mallocs == 0);
+    file_len = 300; memset(file_buf, 'a', 300); boot(); run_ms(1200); check("zu lange Datei: nur 255 B gelesen, Standard", V(0) == 1 && mallocs == 0);
 
     printf("== 8) Karte defekt / Schreibfehler\n");
     sd_broken = 1; file_len = -1; boot(); run_ms(25000);
-    check("Karte antwortet nie: nach 20 s aufgegeben, Standardwerte", U32(0x44) == 1 && V(0) == 2 && mallocs == 0);
+    check("Karte antwortet nie: nach 20 s aufgegeben, Standardwerte", U32(0x44) == 1 && V(0) == 1 && mallocs == 0);
     sd_broken = 0; sd_fail_write = 1;
     *enums[1].val = 1; run_ms(20000);
     check("Schreibfehler: 5 Versuche, dann Ruhe", U32(0x68) == 5 && U32(0x64) == 5 && mallocs == 0 && opens == 0);
@@ -262,14 +278,14 @@ int main(int argc, char **argv) {
     check("naechste Aenderung wird wieder gespeichert", U32(0x4C) > 0 && file_len > 0 && strstr(file_buf, "mt=0\n"));
 
     printf("== 9) CFG-Schnittstelle (usbup.c)\n");
-    check("um_set gueltig/ungueltig", um_set(0, 1) == 1 && um_set(0, 4) == 0 && um_set(4, 0) == 0 && um_set(3, -1) == 0);
+    check("um_set gueltig/ungueltig", um_set(0, 1) == 1 && um_set(0, 5) == 0 && um_set(4, 0) == 0 && um_set(3, -1) == 0);
     check("um_get", um_get(0) == 1 && um_get(9) == -1);
 
     printf("== 10) Zufallstest (Menue, Datei, Zeit)\n");
     file_len = -1; boot();
     for (int it = 0; it < 200000; it++) {
         int r = rand() % 100;
-        if (r < 3) { int k = rand() % 4; *(int32_t *)(void *)(host_um_ram + 4 + 4 * k) = rand() % 3 - (rand() % 20 == 0 ? 5 : 0); }
+        if (r < 3) { int k = rand() % 4; *(int32_t *)(void *)(host_um_ram + 4 + 4 * k) = rand() % (k == 0 ? 5 : 3) - (rand() % 20 == 0 ? 5 : 0); }   /* 049: usb bis 4 */
         else if (r == 3 && rand() % 50 == 0) { boot(); }
         else if (r == 4 && rand() % 20 == 0) { sd_ready_at = (int)host_millis + rand() % 3000; }
         um_poll(); host_millis += (uint32_t)(rand() % 5);
@@ -279,13 +295,14 @@ int main(int argc, char **argv) {
     int good = 1;
     for (int k = 0; k < 4; k++) good &= V(k) >= 0 && V(k) <= (int)mx[k];
     check("Werte gueltig, Namen passend zum Modus", good && names_are(V(3) ? CN : ON));
-    check("Deskriptor passt zu Audio Out", list_len() == (V(0) == 2 ? 365 : V(0) == 1 ? 248 : 149) && host_usb0_control == 0x10);
+    check("Deskriptor passt zu Audio Out", list_len() == (V(0) == 4 ? 390 : V(0) == 3 ? 331 : V(0) == 2 ? 365 : V(0) == 1 ? 248 : 149) && host_usb0_control == 0x10
+          && host_dev_desc[12] == (V(0) == 4 ? 0x84 : V(0) == 3 ? 0x83 : V(0) == 2 ? 0x82 : V(0) == 1 ? 0x81 : 0x77) && host_dev_desc[13] == 0x02);
     check("MT-Konfiguration passt", host_mtcfg[4] == V(1) && (host_mtcfg[5] & 1) == V(2));
     if (U32(0x44)) {
         file_buf[file_len > 0 ? file_len : 0] = 0;
         char want[80]; snprintf(want, sizeof want, "usb=%d\nmt=%d\nfader=%d\ncreative=%d\n", V(0), V(1), V(2), V(3));
-        if (!((file_len > 0 && strstr(file_buf, want)) || (file_len < 0 && V(0) == 2 && V(1) == 0 && V(2) == 1 && V(3) == 1))) printf("  Stand %d/%d/%d/%d saved %d/%d/%d/%d fail %u err %u saves %u Datei [%s] t=%u tch=%u\n", V(0),V(1),V(2),V(3), (int)U32(0x14),(int)U32(0x18),(int)U32(0x1C),(int)U32(0x20), U32(0x68),U32(0x64),U32(0x5C), file_len>0?file_buf:"-", host_millis, U32(0x4C));
-        check("Datei = aktueller Stand (oder unveraendert Standard ohne Datei)", (file_len > 0 && strstr(file_buf, want)) || (file_len < 0 && V(0) == 2 && V(1) == 0 && V(2) == 1 && V(3) == 1));
+        if (!((file_len > 0 && strstr(file_buf, want)) || (file_len < 0 && V(0) == 1 && V(1) == 0 && V(2) == 1 && V(3) == 1))) printf("  Stand %d/%d/%d/%d saved %d/%d/%d/%d fail %u err %u saves %u Datei [%s] t=%u tch=%u\n", V(0),V(1),V(2),V(3), (int)U32(0x14),(int)U32(0x18),(int)U32(0x1C),(int)U32(0x20), U32(0x68),U32(0x64),U32(0x5C), file_len>0?file_buf:"-", host_millis, U32(0x4C));
+        check("Datei = aktueller Stand (oder unveraendert Standard ohne Datei)", (file_len > 0 && strstr(file_buf, want)) || (file_len < 0 && V(0) == 1 && V(1) == 0 && V(2) == 1 && V(3) == 1));
     }
     check("keine Lecks, keine offenen Dateien", mallocs == 0 && opens == 0);
 

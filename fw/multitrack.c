@@ -20,14 +20,16 @@
  *  - Verbraucher (USB-ISR, Prio 0x70): Fuellstandsregler wie 012, Pakete 44/45 Frames (selten 43).
  *
  * RAM (SRAM_L, eigener Bereich 0x1FFFD400..0x1FFFFF00):
- *   0x1FFFD400 Zustand mt_t (0x80) · 0x1FFFD480 Konfiguration mt_cfg_t (0x40) · 0x1FFFD4C0 Konfig.-Deskriptor (365 B, endet 0x1FFFD62D)
+ *   0x1FFFD400 Zustand mt_t (0x80) · 0x1FFFD480 Konfiguration mt_cfg_t (0x20; bis 046 0x40)
+ *   0x1FFFD4A0 Konfig.-Deskriptor (049: 390 B, endet 0x1FFFD626; bis 046 0x1FFFD4C0, 365 B)
  *   0x1FFFD630 / 0x1FFFDA10 Sendepuffer (je 990 B) · 0x1FFFDE00 Ring 384 Frames x 22 B = 8448 B → Ende genau 0x1FFFFF00
  *
  * Mit -DHOST_TEST wird gegen Attrappen fuer einen PC-Testlauf uebersetzt (mt_test.c).
  */
 #include <stdint.h>
 
-#define MT_IF        5u
+#define MT_ACIF      5u                  /* 049: AC-Interface der Multitrack-Funktion (nur getrennt) */
+#define MT_IF        (MT->split ? 6u : 5u)   /* 049: AS-Interface: getrennt IF6, kombiniert (Layout 046) IF5 */
 #define MT_EP        7u
 #define MT_EPADDR    0x87u
 #define MT_BDT_EVEN  (MT_EP * 4u + 2u)   /* 30 */
@@ -93,7 +95,7 @@ typedef struct {               /* per PEEK 1FFFD400.. lesbar (mt_status.py) */
     uint32_t fx_seen;          /* 68 Bit 0 Delay, Bit 1 Reverb */
     uint32_t hook_calls;       /* 6C Anzahl Hook-Aufrufe ausserhalb eines reservierten Blocks (Export, voll) */
     uint8_t  rt[12];           /* 70 aufgeloestes Routing des laufenden Blocks */
-    uint32_t pad;              /* 7C */
+    uint32_t split;            /* 7C 049: 1 = Multitrack eigene Audio-Funktion (AC IF5, AS IF6), 0 = kombiniert (AS IF5) */
 } mt_t;
 
 typedef struct {               /* Konfiguration (spaeter per Menue/USB setzbar) */
@@ -103,11 +105,11 @@ typedef struct {               /* Konfiguration (spaeter per Menue/USB setzbar) 
     uint8_t  res[2];           /* 06 */
     uint8_t  route10[10];      /* 08 Quelle je Kanal fuer Alt 1 */
     uint8_t  route11[11];      /* 12 Quelle je Kanal fuer Alt 2 */
-    uint8_t  res2[0x40 - 0x1D];
+    uint8_t  res2[0x20 - 0x1D];         /* 049: 0x40 → 0x20, darueber liegt ab 0x1FFFD4A0 der Deskriptor */
 } mt_cfg_t;
 
 _Static_assert(sizeof(mt_t) == 0x80, "mt_t");
-_Static_assert(sizeof(mt_cfg_t) == 0x40, "mt_cfg_t");
+_Static_assert(sizeof(mt_cfg_t) == 0x20, "mt_cfg_t");   /* 049 */
 _Static_assert(0x1FFFDE00u + MT_CAP * MT_MAXCH * 2u == 0x1FFFFF00u, "Ring endet bei 0x1FFFFF00");
 _Static_assert(0x1FFFDA10u + MT_MAXF * MT_MAXCH * 2u <= 0x1FFFDE00u && 0x1FFFD630u + MT_MAXF * MT_MAXCH * 2u <= 0x1FFFDA10u, "Sendepuffer");
 
@@ -165,10 +167,14 @@ void mt_init(void) {
     volatile int16_t *r = MT_RING;
     for (uint32_t i = 0; i < MT_CAP * MT_MAXCH; i++) r[i] = 0;
     MT->fill_min = 0xFFFFFFFFu;
+    MT->split = 1u;                     /* 049: wie ua_cfg_desc nach ua_init; usbmenu.c setzt es je Variante */
     g->magic = MT_CFG_MAGIC;
     BARRIER();
     MT->magic = MT_MAGIC;
 }
+
+/* 049: Layout der Multitrack-Interfaces (usbmenu.c, vor jeder Anmeldung; Streams sind dann gestoppt) */
+void mt_set_split(uint32_t split) { MT->split = split ? 1u : 0u; }
 
 /* ------------------------------------------------------------------ Erzeuger (Audio-ISR) */
 /* vor audio_callback: Block reservieren und Routing aufloesen */
@@ -402,7 +408,7 @@ void mt_ep_token(uint32_t stat) {
     BDT_SET(i, buf, (len << 16) | BDT_OWN);
 }
 
-/* Setup-Requests fuer IF5 / EP 0x87 (aus ua_setup).
+/* Setup-Requests fuer IF5 (049: AC) / IF6 (AS) / EP 0x87 (aus ua_setup, nach ui_setup: in "Stereo + In" gehoert IF5 usbin.c).
  * Rueckgabe: -1 nicht zustaendig, 0 STALL, 1 Statusstufe (ZLP) senden, 2 alt-Byte in *out senden, 3 Rate in out[0..2]. */
 int mt_setup(uint32_t req, uint32_t wValue, uint32_t wIndex, uint8_t *out) {
     volatile mt_t *u = MT;
@@ -410,12 +416,14 @@ int mt_setup(uint32_t req, uint32_t wValue, uint32_t wIndex, uint8_t *out) {
     if (ENDPT7 != ENDPT_ISO_TX) { u->alt = 0; u->state = ST_OFF; }   /* SET_CONFIGURATION hat EP7 neu gesetzt (0x19) */
     switch (req) {
     case 0x0B01:
+        if (u->split && wIndex == MT_ACIF) return wValue == 0u ? 1 : 0;   /* 049: eigenes AC-Interface, nur Alt 0 */
         if (wIndex != MT_IF) return -1;
         if (wValue > 2u) return 0;
         if (wValue) mt_stream_start(wValue); else mt_stream_stop();
         u->setups++;
         return 1;
     case 0x0A81:
+        if (u->split && wIndex == MT_ACIF) { out[0] = 0; return 2; }   /* 049 */
         if (wIndex != MT_IF) return -1;
         out[0] = (uint8_t)u->alt;
         u->setups++;

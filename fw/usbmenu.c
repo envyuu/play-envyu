@@ -11,7 +11,7 @@
  * 1,5 s nach der letzten Aenderung nach /usbaudio.cfg geschrieben (Textdatei key=value). Gelesen wird die Datei nach
  * dem Start, sobald die SD-Karte bereit ist.
  *
- * Neuanmeldung: D+-Pullup aus (USB0_CONTROL = 0), Streams stoppen, 400 ms warten, Deskriptor-Variante nach 0x1FFFD4C0
+ * Neuanmeldung: D+-Pullup aus (USB0_CONTROL = 0), Streams stoppen, 400 ms warten, Deskriptor-Variante nach 0x1FFFD4A0 (bis 046 D4C0)
  * kopieren, Laenge in die RAM-Kopie der usb_descriptor_list (Literal 0x131AC zeigt auf um_t.list) eintragen,
  * Pullup an (USB0_CONTROL = 0x10, wie usb_init). Der Host setzt den Bus zurueck und zaehlt neu auf.
  *
@@ -21,10 +21,13 @@
  * Mit -DHOST_TEST wird gegen Attrappen fuer einen PC-Testlauf uebersetzt (um_test.c).
  */
 #include <stdint.h>
-#include "um_desc.h"
+#define UM_DESC_OFF_LEN 149u                /* 049: Off/Stereo/Stereo + Multi entstehen aus ua_cfg_desc (um_desc.h entfaellt) */
+#define UM_DESC_ST_LEN  248u
+#define DESC_COMB_LEN   365u
 #include "cb.h"
 
-extern const uint8_t ua_cfg_desc[];           /* usbaudio.c, 365 Byte (Stereo + Multi) */
+extern const uint8_t ua_cfg_desc[];           /* usbaudio.c, 390 Byte (Stereo + Multi, 049) */
+void mt_set_split(uint32_t split);           /* multitrack.c (049) */
 void ua_force_stop(void);                      /* usbaudio.c */
 void mt_force_stop(void);                      /* multitrack.c */
 #ifdef NO_UI
@@ -45,7 +48,10 @@ extern const char *const FX_NAMES[32];         /* fx.c: 16 Delay- + 16 Reverb-Na
 #define MT_CFG_MAGIC 0x4D544346u
 #define NNAMES       32u
 #define NAMELEN      16u
-#define DESC_FULL_LEN 365u
+#define DESC_FULL_LEN 390u                  /* 049: 365 → 390 (Multitrack als eigene Audio-Funktion) */
+/* 049: bcdDevice je Variante (Geraetedeskriptor im RAM, Teensy .data 0x1FFF1E90, Byte 12/13). Windows merkt sich
+ * Treiber/Einstellungen je Hardware-ID (VID/PID/REV); 0.1.x/0.2 meldeten jede Variante als 0x0277. Off bleibt 0x0277. */
+static const uint16_t BCD_DEV[5] = { 0x0277u, 0x0281u, 0x0282u, 0x0283u, 0x0284u };
 #define SAVE_DELAY_MS 1500u
 #define REENUM_MS    400u
 #define LOAD_FIRST_MS 1000u
@@ -58,8 +64,8 @@ extern const char *const FX_NAMES[32];         /* fx.c: 16 Delay- + 16 Reverb-Na
 #define FR_NO_PATH   5
 
 enum { V_USB, V_PRESET, V_FADER, V_CREATIVE, NV };
-static const int32_t VMAX[NV] = { 3, 1, 1, 1 };   /* 020: usb 3 = Stereo + In */
-static const int32_t VDEF[NV] = { 2, 0, 1, 1 };
+static const int32_t VMAX[NV] = { 4, 1, 1, 1 };   /* 020: usb 3 = Stereo + In; 049: 4 = Stereo + Multi (Win) */
+static const int32_t VDEF[NV] = { 1, 0, 1, 1 };   /* 049: Audio Out Standard Stereo (bis 046: Stereo + Multi) */
 static const char *const VKEY[NV] = { "usb", "mt", "fader", "creative" };
 
 typedef struct {
@@ -102,7 +108,8 @@ typedef struct { uint32_t store[2]; uint32_t manager; uint32_t invoker; } stdfn_
 extern uint8_t  host_um_ram[0x100];
 extern uint8_t  host_names_ram[NNAMES * NAMELEN];
 extern uint8_t  host_desc_ram[DESC_FULL_LEN];
-extern uint8_t  host_mtcfg[0x40];
+extern uint8_t  host_mtcfg[0x20];
+extern uint8_t  host_dev_desc[18];
 extern uint8_t  host_flash_list[0x6C];
 extern volatile uint8_t host_usb0_control, host_usb_configuration;
 extern uint32_t host_millis;
@@ -124,6 +131,7 @@ extern uint8_t host_rs_ram[0x20];
 #define NAMES_RAM   ((volatile char *)host_names_ram)
 #define DESC_RAM    ((volatile uint8_t *)host_desc_ram)
 #define MTCFG_RAM   ((volatile uint8_t *)host_mtcfg)
+#define DEV_DESC    ((volatile uint8_t *)host_dev_desc)
 #define FLASH_LIST  ((const uint8_t *)host_flash_list)
 #define USB0_CONTROL host_usb0_control
 #define USB_CONFIGURATION host_usb_configuration
@@ -147,8 +155,9 @@ static inline void irq_restore(uint32_t p) { (void)p; }
 #define CBS         ((volatile cb_t *)0x1FFFB860u)   /* 045: Color Mode (cb.c) */
 #define RS          ((volatile rs_t *)0x1FFF9A40u)   /* 045: Aufnahme-Einstellungen */
 #define NAMES_RAM   ((volatile char *)0x1FFFB400u)
-#define DESC_RAM    ((volatile uint8_t *)0x1FFFD4C0u)
+#define DESC_RAM    ((volatile uint8_t *)0x1FFFD4A0u)        /* 049: D4C0 → D4A0 */
 #define MTCFG_RAM   ((volatile uint8_t *)0x1FFFD480u)
+#define DEV_DESC    ((volatile uint8_t *)0x1FFF1E90u)        /* 049: Teensy device_descriptor (usb_descriptor_list[0]) */
 #define FLASH_LIST  ((const uint8_t *)0x0009BAC0u)        /* usb_descriptor_list im Flash (Eintrag 1 von 015 gepatcht) */
 #define USB0_CONTROL (*(volatile uint8_t *)0x40072108u)
 #define USB_CONFIGURATION (*(volatile uint8_t *)0x20000D67u)
@@ -201,12 +210,17 @@ static void apply_creative(int on) {
 }
 
 /* ------------------------------------------------------------------ Initialisierung (usbinit_hook, vor usb_init) */
+static void set_bcd(int32_t m) {                            /* 049 */
+    uint16_t v = BCD_DEV[(uint32_t)m <= 4u ? (uint32_t)m : 0u];
+    DEV_DESC[12] = (uint8_t)v; DEV_DESC[13] = (uint8_t)(v >> 8);
+}
+
 void um_early_init(void) {
     volatile um_t *u = UM;
     volatile uint32_t *z = (volatile uint32_t *)(void *)u;
     for (uint32_t i = 0; i < sizeof(um_t) / 4u; i++) z[i] = 0;
     for (uint32_t k = 0; k < NV; k++) { u->v[k] = VDEF[k]; u->saved[k] = VDEF[k]; u->applied[k] = VDEF[k]; u->seen[k] = VDEF[k]; }
-    for (uint32_t i = 0; i < sizeof u->list; i++) u->list[i] = FLASH_LIST[i];   /* Eintrag 1 = {0x0200, 0, 0x1FFFD4C0, 365} */
+    for (uint32_t i = 0; i < sizeof u->list; i++) u->list[i] = FLASH_LIST[i];   /* Eintrag 1 = {0x0200, 0, 0x1FFFD4A0, 390} */
     set_names(1);                         /* vor dem ersten Bildaufbau; arp_init laeuft spaeter (init_array) */
     CBS->mode = 0; CBS->saved = 0; CBS->seen = 0;      /* 045 */
     for (uint32_t q = 0; q < RS_N; q++) { RS->v[q] = 1; RS->saved[q] = 1; RS->seen[q] = 1; }   /* 045: Standard On */
@@ -217,7 +231,7 @@ void um_early_init(void) {
 
 /* ------------------------------------------------------------------ Menue */
 static const char PAGE_NAME[] = "USB Audio";
-static const char *const N_USB[4]     = { "Off", "Stereo", "Stereo + Multi", "Stereo + In" };
+static const char *const N_USB[5]     = { "Off", "Stereo", "Stereo + Multi", "Stereo + In", "Stereo+Multi (Win)" };   /* 049: Menuetexte < 20 Zeichen */
 static const char *const N_PRESET[2]  = { "Master", "FX Return" };
 static const char *const N_FADER[2]   = { "Pre Fader", "Post Fader" };
 static const char *const N_MODE[2]    = { "Classic", "Creative" };
@@ -251,7 +265,7 @@ void um_build(void *menu, void *parent) {
     (void)menu;
     volatile um_t *u = UM;
     if (u->magic != UM_MAGIC) return;
-    add_enum(parent, "Audio Out",       &u->v[V_USB],      3u, N_USB);
+    add_enum(parent, "Audio Out",       &u->v[V_USB],      4u, N_USB);
     add_enum(parent, "Multitrack 9/10", &u->v[V_PRESET],   1u, N_PRESET);
     add_enum(parent, "Track Level",     &u->v[V_FADER],    1u, N_FADER);
     add_enum(parent, "FX Mode",         &u->v[V_CREATIVE], 1u, N_MODE);
@@ -409,7 +423,7 @@ static void put_line(char *b, uint32_t *n, const char *key, int32_t v) {
 
 static void save(void) {
     volatile um_t *u = UM;
-    static const char HDR[] = "# Polyend Play USB Audio (Patch 017): usb 0=Off 1=Stereo 2=Stereo+Multi 3=Stereo+In, mt 0=Master 1=FX Return, fader 0=Pre 1=Post, creative 0=Classic 1=Creative\n";   /* nicht verlaengern: Puffer 256, Kopf max. 200 */
+    static const char HDR[] = "# Polyend Play USB Audio: usb 0=Off 1=Stereo 2=Stereo+Multi 3=Stereo+In 4=Win, mt 0=Master 1=FX Return, fader 0=Pre 1=Post, creative 0=Classic 1=Creative\n";   /* nicht verlaengern: Puffer 256, Kopf max. 200 */
     void *fil = MALLOC(FIL_SIZE);
     char *buf = (char *)MALLOC(320u);                   /* 12.11.: 256 → 320 (Kopf 160 + Zeilen bis 94) */
     int32_t snap[NV]; int ok = 0;
@@ -447,6 +461,46 @@ static void save(void) {
 }
 
 /* ------------------------------------------------------------------ USB-Neuanmeldung */
+/* 049: "Stereo + Multi" (kombiniert, 365 B, Layout 046) aus dem getrennten ua_cfg_desc (390 B):
+ * {Ziel, Quelle, Laenge}: Kopf..AC-IF3 · IT1+OT2 · IT3+OT4 · IF4 (Stereo-AS) · IF6→IF5 (Multitrack-AS); AC-Header neu. */
+static const uint16_t COMB_SEG[][3] = { { 0, 0, 166 }, { 176, 175, 21 }, { 197, 274, 21 }, { 218, 196, 52 }, { 270, 295, 95 } };
+static const uint8_t COMB_ACH[10] = { 0x0A, 0x24, 0x01, 0x00, 0x01, 0x34, 0x00, 0x02, 0x04, 0x05 };   /* AC-Header {4, 5}, wTotalLength 52 */
+
+/* Deskriptor-Variante m ins RAM, Laenge in die RAM-Deskriptorliste, bcdDevice (049), Modus von usbin.c. */
+static void load_desc(int32_t m) {
+    volatile um_t *u = UM;
+    volatile uint8_t *d = DESC_RAM;
+    uint32_t len;
+    if (m == 3) {                                           /* Stereo + In: eigener Deskriptor (usbin.c) */
+        len = UI_DESC_LEN;
+        for (uint32_t i = 0; i < len; i++) d[i] = UI_DESC_IN[i];
+    } else if (m == 2) {                                    /* 049: Stereo + Multi = eine Audio-Funktion wie 046 (Mac) */
+        len = DESC_COMB_LEN;
+        for (uint32_t k = 0; k < sizeof COMB_SEG / sizeof COMB_SEG[0]; k++)
+            for (uint32_t i = 0; i < COMB_SEG[k][2]; i++) d[COMB_SEG[k][0] + i] = ua_cfg_desc[COMB_SEG[k][1] + i];
+        for (uint32_t i = 0; i < sizeof COMB_ACH; i++) d[166u + i] = COMB_ACH[i];
+        d[4] = 6; d[152] = 3;                               /* 6 Interfaces, IAD Audio IF3..5 */
+        for (uint32_t i = 270u; i < len; i += d[i]) if (d[i + 1] == 4u) d[i + 2] = 5;   /* Multitrack-AS IF6 → IF5 */
+    } else {                                                /* Off / Stereo / Stereo + Multi (Win): Anfang bzw. ganz */
+        len = m == 4 ? DESC_FULL_LEN : m == 1 ? UM_DESC_ST_LEN : UM_DESC_OFF_LEN;
+        for (uint32_t i = 0; i < len; i++) d[i] = ua_cfg_desc[i];
+        d[4] = m == 4 ? 7 : m == 1 ? 5 : 3;                 /* Off: CDC + MIDI; Stereo: + IF3/IF4 */
+    }
+    d[2] = (uint8_t)len; d[3] = (uint8_t)(len >> 8);
+    u->list[12 + 8] = (uint8_t)len; u->list[12 + 9] = (uint8_t)(len >> 8);  /* Eintrag 1, Laenge */
+    __asm__ volatile("" ::: "memory");
+    set_bcd(m);                                             /* 049 */
+    ui_set_mode(m == 3);                                    /* 020: IF5/EP7 gehoeren dann usbin.c */
+    mt_set_split(m != 2);                                   /* 049: Multitrack-AS auf IF6 (getrennt) bzw. IF5 (kombiniert) */
+}
+
+/* 049: beim Start nach ua_init/mt_init/ui_init (usbinit_hook, vor usb_init): Standardvariante anmelden.
+ * ua_init legt "Stereo + Multi" ab; seit 049 ist der Standard "Stereo". Eine gespeicherte Einstellung folgt wie
+ * bisher per Neuanmeldung, sobald usbaudio.cfg gelesen ist. */
+void um_boot_desc(void) {
+    if (UM->magic != UM_MAGIC) return;
+    load_desc(VDEF[V_USB]);
+}
 static void reenum_poll(void) {
     volatile um_t *u = UM;
     uint32_t now = MILLIS();
@@ -464,14 +518,7 @@ static void reenum_poll(void) {
     }
     if (now - u->re_t0 < REENUM_MS) return;
     int32_t m = u->v[V_USB];
-    uint32_t len = m == 3 ? UI_DESC_LEN : m == 2 ? DESC_FULL_LEN : m == 1 ? UM_DESC_ST_LEN : UM_DESC_OFF_LEN;
-    const uint8_t *src = m == 3 ? UI_DESC_IN : m == 1 ? UM_DESC_ST : ua_cfg_desc;
-    volatile uint8_t *d = DESC_RAM;
-    for (uint32_t i = 0; i < len; i++) d[i] = src[i];
-    if (m == 0) { d[2] = (uint8_t)UM_DESC_OFF_LEN; d[3] = 0; d[4] = 3; }   /* nur CDC (IF0/1) + MIDI (IF2) */
-    u->list[12 + 8] = (uint8_t)len; u->list[12 + 9] = (uint8_t)(len >> 8);  /* Eintrag 1, Laenge */
-    __asm__ volatile("" ::: "memory");
-    ui_set_mode(m == 3);                                    /* 020: IF5/EP7 gehoeren dann usbin.c */
+    load_desc(m);
     u->applied[V_USB] = m;
     u->re_state = 0; u->reenums++;
     USB0_CONTROL = 0x10u;                                   /* USB_CONTROL_DPPULLUPNONOTG, wie usb_init */

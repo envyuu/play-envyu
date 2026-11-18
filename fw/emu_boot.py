@@ -10,7 +10,7 @@ Ausgefuehrt wird der ECHTE Startweg: Gfx_init 0x3FF8 → b.w 0x405C → Weiche �
 Bilder: screens/00b_boot_envyu.png (Endbild), 00c_boot_frames.png (Bilder 0, 5, 10, 15, 20, 25), 00d_boot_anim.gif.
 usage: emu_boot.py PolyendPlay_v1.6.0_mod.ppf ../stock/firmware.bin
 """
-import sys, os
+import re, sys, os
 import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -88,7 +88,8 @@ def main():
     txt = [c for c in d.eve.cmd_log if c[0] == 0x0C]
     t_last = [c[5] for c in txt[-3:]]
     build = "%08x" % int.from_bytes(bytes(img[nm["SN_HDR"] + 8:nm["SN_HDR"] + 12]), "little")
-    check(t_last == ["envyu 0.2.0-beta", "based on Play 1.6.0", "#" + build[:4]], f"Texte {t_last} (Build {build})")
+    VER = re.search(r'ENVYU_VERSION "([^"]+)"', open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "version.h")).read()).group(1)   # 049: aus version.h
+    check(t_last == ["envyu " + VER, "based on Play 1.6.0", "#" + build[:4]], f"Texte {t_last} (Build {build})")
     mac_px = last[204:206, 47:54]; gap = last[206, 45:56]
     check(int((mac_px > 150).sum()) == 14 and int(gap.max()) < 60 and int(last[196:204, 40:60].max()) < 60,
           "ū-Strich in der Fusszeile: 7×2 Px direkt ueber dem u (Zeile 204/205, Abstand 1 Zeile)")
